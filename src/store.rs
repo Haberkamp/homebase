@@ -148,9 +148,8 @@ struct Registry {
     slots: HashMap<QueryKey, QuerySlot>,
 }
 
-/// Stops notifying and releases the query slot when dropped (or when the last
-/// `Live` for that watch is dropped).
-pub struct Subscription {
+/// Stops notifying and releases the query slot when the last `Live` is dropped.
+struct Subscription {
     registry: Rc<RefCell<Registry>>,
     key: QueryKey,
     alive: Rc<Cell<bool>>,
@@ -246,12 +245,8 @@ impl<E> Store<E> {
         Ok(())
     }
 
-    pub fn query<Q: Query>(&mut self, query: Q) -> Result<Vec<Q::Row>> {
-        Ok(query.execute(&self.conn)?)
-    }
-
-    /// Watch a query. After each `commit`, `Live::rows` matches SQLite without a
-    /// follow-up `query`.
+    /// Watch a query. After each `commit`, `Live::rows` matches SQLite.
+    /// Dropping `Live` unsubscribes.
     pub fn watch<Q: Query>(&mut self, query: Q) -> Result<Live<Q>> {
         let rows = Rc::new(RefCell::new(query.execute(&self.conn)?));
         let rows_for_cb = rows.clone();
@@ -265,9 +260,7 @@ impl<E> Store<E> {
         })
     }
 
-    /// Fires only when the result *changes* (not on subscribe, not on equal re-run).
-    /// Drop the returned `Subscription` to unsubscribe.
-    pub fn subscribe<Q: Query>(
+    fn subscribe<Q: Query>(
         &mut self,
         query: Q,
         mut on_change: impl FnMut(&[Q::Row]) + 'static,
