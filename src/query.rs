@@ -1,20 +1,65 @@
 use std::marker::PhantomData;
 
-use rusqlite::{Connection, Row, params_from_iter};
+use rusqlite::{Connection, Row, Transaction, params_from_iter};
 
 use crate::store::Query;
 
 /// A row type that maps onto one SQLite table.
 pub trait Table: Clone + PartialEq + 'static {
     const TABLE: &'static str;
+    const COLUMNS: &'static [&'static str];
 
     fn from_row(row: &Row<'_>) -> rusqlite::Result<Self>;
+
+    fn values(&self) -> Vec<Bind>;
 
     fn query() -> Select<Self>
     where
         Self: Sized,
     {
         Select::new()
+    }
+
+    fn where_eq(column: impl Into<String>, value: impl Into<Bind>) -> Select<Self>
+    where
+        Self: Sized,
+    {
+        Self::query().where_eq(column, value)
+    }
+
+    fn create(tx: &Transaction<'_>, row: &Self) -> rusqlite::Result<usize>
+    where
+        Self: Sized,
+    {
+        if Self::COLUMNS.len() != row.values().len() {
+            return Err(rusqlite::Error::InvalidParameterName(
+                "COLUMNS length must match values()".into(),
+            ));
+        }
+        let cols = Self::COLUMNS
+            .iter()
+            .map(|c| quote_ident(c))
+            .collect::<rusqlite::Result<Vec<_>>>()?
+            .join(", ");
+        let placeholders = (1..=Self::COLUMNS.len())
+            .map(|i| format!("?{i}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let sql = format!(
+            "INSERT INTO {} ({cols}) VALUES ({placeholders})",
+            quote_ident(Self::TABLE)?
+        );
+        tx.execute(&sql, params_from_iter(row.values()))
+    }
+
+    /// Raw SQLite escape hatch for mutators.
+    fn exec(
+        tx: &Transaction<'_>,
+        sql: impl AsRef<str>,
+        params: impl IntoIterator<Item = impl Into<Bind>>,
+    ) -> rusqlite::Result<usize> {
+        let binds: Vec<Bind> = params.into_iter().map(Into::into).collect();
+        tx.execute(sql.as_ref(), params_from_iter(binds))
     }
 }
 
@@ -138,6 +183,7 @@ pub struct Select<M> {
     distinct: bool,
     columns: Option<Vec<String>>,
     clauses: Vec<Clause>,
+    sets: Vec<(String, Bind)>,
     order: Vec<Order>,
     limit: Option<i64>,
     offset: Option<i64>,
@@ -152,6 +198,7 @@ impl<M: Table> Select<M> {
             distinct: false,
             columns: None,
             clauses: Vec::new(),
+            sets: Vec::new(),
             order: Vec::new(),
             limit: None,
             offset: None,
@@ -513,6 +560,52 @@ impl<M: Table> Select<M> {
         self.offset((page - 1) * per_page).limit(per_page)
     }
 
+    pub fn set(mut self, column: impl Into<String>, value: impl Into<Bind>) -> Self {
+        self.sets.push((column.into(), value.into()));
+        self
+    }
+
+    pub fn update(&self, tx: &Transaction<'_>) -> rusqlite::Result<usize> {
+        if self.clauses.is_empty() {
+            return Err(rusqlite::Error::InvalidParameterName(
+                "UPDATE requires WHERE".into(),
+            ));
+        }
+        if self.sets.is_empty() {
+            return Err(rusqlite::Error::InvalidParameterName(
+                "UPDATE requires SET".into(),
+            ));
+        }
+        let mut sql = format!("UPDATE {} SET ", quote_ident(self.table)?);
+        let mut binds = Vec::new();
+        for (i, (column, value)) in self.sets.iter().enumerate() {
+            if i > 0 {
+                sql.push_str(", ");
+            }
+            sql.push_str(&quote_ident(column)?);
+            sql.push_str(" = ?");
+            binds.push(value.clone());
+        }
+        sql.push_str(" WHERE ");
+        sql.push_str(&compile_where(&self.clauses, &mut binds)?);
+        tx.execute(&sql, params_from_iter(binds))
+    }
+
+    pub fn delete(&self, tx: &Transaction<'_>) -> rusqlite::Result<usize> {
+        if self.clauses.is_empty() {
+            return Err(rusqlite::Error::InvalidParameterName(
+                "DELETE requires WHERE".into(),
+            ));
+        }
+        let mut binds = Vec::new();
+        let sql = format!(
+            "DELETE FROM {} WHERE {}",
+            quote_ident(self.table)?,
+            compile_where(&self.clauses, &mut binds)?
+        );
+        tx.execute(&sql, params_from_iter(binds))
+    }
+
     fn compile(&self) -> rusqlite::Result<(String, Vec<Bind>)> {
         if let Some((sql, binds)) = &self.raw_sql {
             return Ok((sql.clone(), binds.clone()));
@@ -533,15 +626,7 @@ impl<M: Table> Select<M> {
 
         if !self.clauses.is_empty() {
             sql.push_str(" WHERE ");
-            for (i, clause) in self.clauses.iter().enumerate() {
-                if i > 0 {
-                    sql.push_str(match clause.bool {
-                        BoolOp::And => " AND ",
-                        BoolOp::Or => " OR ",
-                    });
-                }
-                sql.push_str(&compile_predicate(&clause.predicate, &mut binds)?);
-            }
+            sql.push_str(&compile_where(&self.clauses, &mut binds)?);
         }
 
         if !self.order.is_empty() {
@@ -586,6 +671,7 @@ impl<M> PartialEq for Select<M> {
             && self.distinct == other.distinct
             && self.columns == other.columns
             && self.clauses == other.clauses
+            && self.sets == other.sets
             && self.order == other.order
             && self.limit == other.limit
             && self.offset == other.offset
@@ -601,6 +687,7 @@ impl<M> std::hash::Hash for Select<M> {
         self.distinct.hash(state);
         self.columns.hash(state);
         self.clauses.hash(state);
+        self.sets.hash(state);
         self.order.hash(state);
         self.limit.hash(state);
         self.offset.hash(state);
@@ -635,6 +722,20 @@ fn quote_ident(name: &str) -> rusqlite::Result<String> {
     } else {
         Err(rusqlite::Error::InvalidParameterName(name.into()))
     }
+}
+
+fn compile_where(clauses: &[Clause], binds: &mut Vec<Bind>) -> rusqlite::Result<String> {
+    let mut sql = String::new();
+    for (i, clause) in clauses.iter().enumerate() {
+        if i > 0 {
+            sql.push_str(match clause.bool {
+                BoolOp::And => " AND ",
+                BoolOp::Or => " OR ",
+            });
+        }
+        sql.push_str(&compile_predicate(&clause.predicate, binds)?);
+    }
+    Ok(sql)
 }
 
 fn compile_predicate(pred: &Predicate, binds: &mut Vec<Bind>) -> rusqlite::Result<String> {

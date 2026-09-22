@@ -18,6 +18,7 @@ struct Todo {
 
 impl Table for Todo {
     const TABLE: &'static str = "todos";
+    const COLUMNS: &'static [&'static str] = &["id", "text", "completed"];
 
     fn from_row(row: &Row<'_>) -> rusqlite::Result<Self> {
         Ok(Self {
@@ -25,6 +26,14 @@ impl Table for Todo {
             text: row.get::<_, Option<String>>(1)?.unwrap_or_default(),
             completed: row.get::<_, i64>(2)? != 0,
         })
+    }
+
+    fn values(&self) -> Vec<homebase::Bind> {
+        vec![
+            self.id.as_str().into(),
+            self.text.as_str().into(),
+            self.completed.into(),
+        ]
     }
 }
 

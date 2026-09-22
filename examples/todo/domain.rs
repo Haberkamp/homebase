@@ -1,4 +1,4 @@
-use homebase::rusqlite::{self, Row, Transaction, params};
+use homebase::rusqlite::{self, Row, Transaction};
 use homebase::{Mutator, Table};
 
 pub const SCHEMA: &str = "
@@ -18,6 +18,7 @@ pub struct Todo {
 
 impl Table for Todo {
     const TABLE: &'static str = "todos";
+    const COLUMNS: &'static [&'static str] = &["id", "text", "completed"];
 
     fn from_row(row: &Row<'_>) -> rusqlite::Result<Self> {
         Ok(Self {
@@ -25,6 +26,14 @@ impl Table for Todo {
             text: row.get(1)?,
             completed: row.get::<_, i64>(2)? != 0,
         })
+    }
+
+    fn values(&self) -> Vec<homebase::Bind> {
+        vec![
+            self.id.as_str().into(),
+            self.text.as_str().into(),
+            self.completed.into(),
+        ]
     }
 }
 
@@ -42,19 +51,27 @@ impl Mutator<Event> for TodoMutator {
     fn apply(&self, tx: &Transaction<'_>, event: &Event) -> rusqlite::Result<()> {
         match event {
             Event::Created { id, text } => {
-                tx.execute(
-                    "INSERT INTO todos (id, text, completed) VALUES (?1, ?2, 0)",
-                    params![id, text],
+                Todo::create(
+                    tx,
+                    &Todo {
+                        id: id.clone(),
+                        text: text.clone(),
+                        completed: false,
+                    },
                 )?;
             }
             Event::Completed { id } => {
-                tx.execute("UPDATE todos SET completed = 1 WHERE id = ?1", params![id])?;
+                Todo::where_eq("id", id.as_str())
+                    .set("completed", true)
+                    .update(tx)?;
             }
             Event::Uncompleted { id } => {
-                tx.execute("UPDATE todos SET completed = 0 WHERE id = ?1", params![id])?;
+                Todo::where_eq("id", id.as_str())
+                    .set("completed", false)
+                    .update(tx)?;
             }
             Event::Deleted { id } => {
-                tx.execute("DELETE FROM todos WHERE id = ?1", params![id])?;
+                Todo::where_eq("id", id.as_str()).delete(tx)?;
             }
         }
         Ok(())
