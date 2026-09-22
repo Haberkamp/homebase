@@ -5,9 +5,15 @@ use rusqlite::{Connection, Row, Transaction, params_from_iter};
 use crate::store::Query;
 
 /// A row type that maps onto one SQLite table.
+///
+/// The table name is the snake_case plural of the type name (`Todo` → `todos`)
+/// unless [`table`](Self::table) is overridden.
 pub trait Table: Clone + PartialEq + 'static {
-    const TABLE: &'static str;
     const COLUMNS: &'static [&'static str];
+
+    fn table() -> String {
+        infer_table_name(std::any::type_name::<Self>())
+    }
 
     fn from_row(row: &Row<'_>) -> rusqlite::Result<Self>;
 
@@ -47,7 +53,7 @@ pub trait Table: Clone + PartialEq + 'static {
             .join(", ");
         let sql = format!(
             "INSERT INTO {} ({cols}) VALUES ({placeholders})",
-            quote_ident(Self::TABLE)?
+            quote_ident(&Self::table())?
         );
         tx.execute(&sql, params_from_iter(row.values()))
     }
@@ -115,6 +121,21 @@ impl From<String> for Bind {
     }
 }
 
+impl From<&String> for Bind {
+    fn from(value: &String) -> Self {
+        Self::Text(value.clone())
+    }
+}
+
+impl<T> From<Option<T>> for Bind
+where
+    T: Into<Bind>,
+{
+    fn from(value: Option<T>) -> Self {
+        value.map(Into::into).unwrap_or(Self::Null)
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 enum BoolOp {
     And,
@@ -179,7 +200,7 @@ enum Order {
 /// [`Query`] yourself is the fully custom path.
 #[derive(Clone, Debug)]
 pub struct Select<M> {
-    table: &'static str,
+    table: String,
     distinct: bool,
     columns: Option<Vec<String>>,
     clauses: Vec<Clause>,
@@ -194,7 +215,7 @@ pub struct Select<M> {
 impl<M: Table> Select<M> {
     pub fn new() -> Self {
         Self {
-            table: M::TABLE,
+            table: M::table(),
             distinct: false,
             columns: None,
             clauses: Vec::new(),
@@ -576,7 +597,7 @@ impl<M: Table> Select<M> {
                 "UPDATE requires SET".into(),
             ));
         }
-        let mut sql = format!("UPDATE {} SET ", quote_ident(self.table)?);
+        let mut sql = format!("UPDATE {} SET ", quote_ident(&self.table)?);
         let mut binds = Vec::new();
         for (i, (column, value)) in self.sets.iter().enumerate() {
             if i > 0 {
@@ -600,7 +621,7 @@ impl<M: Table> Select<M> {
         let mut binds = Vec::new();
         let sql = format!(
             "DELETE FROM {} WHERE {}",
-            quote_ident(self.table)?,
+            quote_ident(&self.table)?,
             compile_where(&self.clauses, &mut binds)?
         );
         tx.execute(&sql, params_from_iter(binds))
@@ -621,7 +642,7 @@ impl<M: Table> Select<M> {
                 .collect::<rusqlite::Result<Vec<_>>>()?
                 .join(", "),
         };
-        let mut sql = format!("SELECT {distinct}{cols} FROM {}", quote_ident(self.table)?);
+        let mut sql = format!("SELECT {distinct}{cols} FROM {}", quote_ident(&self.table)?);
         let mut binds = Vec::new();
 
         if !self.clauses.is_empty() {
@@ -799,4 +820,44 @@ fn compile_predicate(pred: &Predicate, binds: &mut Vec<Bind>) -> rusqlite::Resul
             Ok(format!("({sql})"))
         }
     }
+}
+
+fn infer_table_name(type_name: &str) -> String {
+    let name = type_name.rsplit("::").next().unwrap_or(type_name);
+    pluralize(&snake_case(name))
+}
+
+fn snake_case(name: &str) -> String {
+    let mut out = String::new();
+    for (i, c) in name.chars().enumerate() {
+        if c.is_uppercase() {
+            if i > 0 {
+                out.push('_');
+            }
+            out.extend(c.to_lowercase());
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
+fn pluralize(snake: &str) -> String {
+    if snake.ends_with("ss")
+        || snake.ends_with("sh")
+        || snake.ends_with("ch")
+        || snake.ends_with('x')
+        || snake.ends_with('z')
+        || snake.ends_with('s')
+    {
+        return format!("{snake}es");
+    }
+    if let Some(rest) = snake.strip_suffix('y') {
+        if let Some(c) = rest.chars().next_back() {
+            if !matches!(c, 'a' | 'e' | 'i' | 'o' | 'u') {
+                return format!("{rest}ies");
+            }
+        }
+    }
+    format!("{snake}s")
 }

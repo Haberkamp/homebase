@@ -2477,8 +2477,18 @@ name = "homebase"
 version = "0.1.0"
 dependencies = [
  "gpui",
+ "homebase-macros",
  "rusqlite",
  "tempfile",
+]
+
+[[package]]
+name = "homebase-macros"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
 ]
 
 [[package]]

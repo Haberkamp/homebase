@@ -1,32 +1,11 @@
-use homebase::rusqlite::{self, Row, Transaction};
+use homebase::rusqlite::{self, Transaction};
 use homebase::{Mutator, Table};
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Table)]
 pub struct Todo {
     pub id: String,
     pub text: String,
     pub completed: bool,
-}
-
-impl Table for Todo {
-    const TABLE: &'static str = "todos";
-    const COLUMNS: &'static [&'static str] = &["id", "text", "completed"];
-
-    fn from_row(row: &Row<'_>) -> rusqlite::Result<Self> {
-        Ok(Self {
-            id: row.get(0)?,
-            text: row.get(1)?,
-            completed: row.get::<_, i64>(2)? != 0,
-        })
-    }
-
-    fn values(&self) -> Vec<homebase::Bind> {
-        vec![
-            self.id.as_str().into(),
-            self.text.as_str().into(),
-            self.completed.into(),
-        ]
-    }
 }
 
 #[derive(Clone, Debug)]

@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 gpui = "0.2.2"
+homebase-macros = { path = "homebase-macros" }
 rusqlite = { version = "0.32", features = ["bundled"] }
 
 [dev-dependencies]

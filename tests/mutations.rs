@@ -1,5 +1,5 @@
-use homebase::rusqlite::{self, Row, Transaction};
-use homebase::{Bind, Error, Mutator, Store, Table};
+use homebase::rusqlite::{self, Transaction};
+use homebase::{Error, Mutator, Store, Table};
 use tempfile::tempdir;
 
 const SCHEMA: &str = "
@@ -10,32 +10,11 @@ CREATE TABLE IF NOT EXISTS todos (
 );
 ";
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Table)]
 struct Todo {
     id: String,
     text: String,
     completed: bool,
-}
-
-impl Table for Todo {
-    const TABLE: &'static str = "todos";
-    const COLUMNS: &'static [&'static str] = &["id", "text", "completed"];
-
-    fn from_row(row: &Row<'_>) -> rusqlite::Result<Self> {
-        Ok(Self {
-            id: row.get(0)?,
-            text: row.get(1)?,
-            completed: row.get::<_, i64>(2)? != 0,
-        })
-    }
-
-    fn values(&self) -> Vec<Bind> {
-        vec![
-            self.id.as_str().into(),
-            self.text.as_str().into(),
-            self.completed.into(),
-        ]
-    }
 }
 
 fn todo(id: &str, text: &str, completed: bool) -> Todo {

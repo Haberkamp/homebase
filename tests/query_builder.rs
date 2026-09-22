@@ -18,7 +18,6 @@ struct Todo {
 }
 
 impl Table for Todo {
-    const TABLE: &'static str = "todos";
     const COLUMNS: &'static [&'static str] = &["id", "text", "completed"];
 
     fn from_row(row: &Row<'_>) -> rusqlite::Result<Self> {
