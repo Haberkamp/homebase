@@ -4,10 +4,10 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+gpui = "0.2.2"
 rusqlite = { version = "0.32", features = ["bundled"] }
 
 [dev-dependencies]
-gpui = "0.2.2"
 tempfile = "3"
 
 [[example]]

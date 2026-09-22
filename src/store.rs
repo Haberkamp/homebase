@@ -8,6 +8,22 @@ use std::rc::Rc;
 
 use rusqlite::{Connection, Transaction};
 
+/// Something `commit` can notify after watches refresh. GPUI `Context` notifies
+/// the view; tests pass `&mut ()`.
+pub trait Notify {
+    fn notify(&mut self);
+}
+
+impl Notify for () {
+    fn notify(&mut self) {}
+}
+
+impl<T: 'static> Notify for gpui::Context<'_, T> {
+    fn notify(&mut self) {
+        gpui::Context::notify(self);
+    }
+}
+
 /// Maps a consumer event onto SQLite writes.
 pub trait Mutator<E> {
     fn apply(&self, tx: &Transaction<'_>, event: &E) -> rusqlite::Result<()>;
@@ -141,13 +157,15 @@ impl<E> Store<E> {
         })
     }
 
-    pub fn commit(&mut self, event: E) -> Result<(), String> {
+    pub fn commit(&mut self, event: E, cx: &mut impl Notify) -> Result<(), String> {
         {
             let tx = self.conn.transaction().map_err(|e| e.to_string())?;
             self.mutator.apply(&tx, &event).map_err(|e| e.to_string())?;
             tx.commit().map_err(|e| e.to_string())?;
         }
-        self.refresh()
+        self.refresh()?;
+        cx.notify();
+        Ok(())
     }
 
     pub fn query<Q: Query>(&mut self, query: Q) -> Result<Vec<Q::Row>, String> {

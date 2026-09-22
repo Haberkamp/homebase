@@ -1,27 +1,26 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use gpui::{
-    App, Context, Entity, FocusHandle, Focusable, Subscription, Window, div, prelude::*, rgb,
+    App, Context, Entity, FocusHandle, Focusable, Window, div, prelude::*, rgb,
 };
 use homebase::{Live, Store};
 
 use crate::domain::{Event, SCHEMA, Todo, TodoMutator, TodoQuery};
 
 use super::filter::Filter;
-use super::filter_bar::{FilterBar, FilterBarEvent};
+use super::filter_bar::filter_bar;
 use super::header::{db_path, header};
-use super::todo_input::{TodoInput, TodoInputEvent};
-use super::todo_list::{TodoList, TodoListEvent};
+use super::todo_input::TodoInput;
+use super::todo_list::todo_list;
+use super::todo_row::todo_row;
 
 pub struct TodoApp {
     store: Store<Event>,
     active: Live<TodoQuery>,
     completed: Live<TodoQuery>,
     all: Live<TodoQuery>,
+    filter: Filter,
     input: Entity<TodoInput>,
-    filter_bar: Entity<FilterBar>,
-    list: Entity<TodoList>,
-    _subscriptions: Vec<Subscription>,
 }
 
 impl TodoApp {
@@ -37,62 +36,45 @@ impl TodoApp {
             .expect("watch completed todos");
         let all = store.watch(TodoQuery::All).expect("watch all todos");
 
-        let input = cx.new(|cx| TodoInput::new(window, cx));
-        let filter_bar = cx.new(|_| FilterBar::new());
-        let list = cx.new(|_| TodoList::new());
-        list.update(cx, |list, cx| list.set_todos(all.rows(), cx));
+        let app = cx.weak_entity();
+        let input = cx.new(|cx| {
+            TodoInput::new(window, cx, move |text, cx| {
+                if let Some(app) = app.upgrade() {
+                    app.update(cx, |this, cx| this.add_todo(text, cx));
+                }
+            })
+        });
 
-        let mut app = Self {
+        Self {
             store,
             active,
             completed,
             all,
-            input: input.clone(),
-            filter_bar: filter_bar.clone(),
-            list: list.clone(),
-            _subscriptions: Vec::new(),
-        };
-
-        app._subscriptions
-            .push(cx.subscribe(&input, |this, _, event, cx| match event {
-                TodoInputEvent::Submitted(text) => this.add_todo(text.clone(), cx),
-            }));
-        app._subscriptions
-            .push(cx.subscribe(&filter_bar, |this, _, event, cx| {
-                let FilterBarEvent::Changed = event;
-                this.sync_list(cx);
-            }));
-        app._subscriptions
-            .push(cx.subscribe(&list, |this, _, event, cx| match event {
-                TodoListEvent::Toggle { id, completed } => this.toggle(id.clone(), *completed, cx),
-                TodoListEvent::Delete { id } => this.delete(id.clone(), cx),
-            }));
-
-        app
+            filter: Filter::All,
+            input,
+        }
     }
 
-    fn filter(&self, cx: &App) -> Filter {
-        self.filter_bar.read(cx).selected()
-    }
-
-    fn watched_rows(&self, cx: &App) -> Vec<Todo> {
-        match self.filter(cx).query() {
+    fn watched_rows(&self) -> Vec<Todo> {
+        match self.filter.query() {
             TodoQuery::All => self.all.rows(),
             TodoQuery::Active => self.active.rows(),
             TodoQuery::Completed => self.completed.rows(),
         }
     }
 
-    fn sync_list(&mut self, cx: &mut Context<Self>) {
-        let todos = self.watched_rows(cx);
-        self.list.update(cx, |list, cx| list.set_todos(todos, cx));
+    fn set_filter(&mut self, filter: Filter, cx: &mut Context<Self>) {
+        if self.filter == filter {
+            return;
+        }
+        self.filter = filter;
+        cx.notify();
     }
 
     fn add_todo(&mut self, text: String, cx: &mut Context<Self>) {
         self.store
-            .commit(Event::Created { id: new_id(), text })
+            .commit(Event::Created { id: new_id(), text }, cx)
             .expect("commit created");
-        self.sync_list(cx);
     }
 
     fn toggle(&mut self, id: String, completed: bool, cx: &mut Context<Self>) {
@@ -101,15 +83,13 @@ impl TodoApp {
         } else {
             Event::Completed { id }
         };
-        self.store.commit(event).expect("commit toggle");
-        self.sync_list(cx);
+        self.store.commit(event, cx).expect("commit toggle");
     }
 
     fn delete(&mut self, id: String, cx: &mut Context<Self>) {
         self.store
-            .commit(Event::Deleted { id })
+            .commit(Event::Deleted { id }, cx)
             .expect("commit deleted");
-        self.sync_list(cx);
     }
 }
 
@@ -120,7 +100,20 @@ impl Focusable for TodoApp {
 }
 
 impl Render for TodoApp {
-    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let rows = self.watched_rows().into_iter().map(|todo| {
+            let id = todo.id.clone();
+            let completed = todo.completed;
+            let delete_id = todo.id.clone();
+            todo_row(
+                todo,
+                cx.listener(move |this, _, _, cx| this.toggle(id.clone(), completed, cx)),
+                cx.listener(move |this, _, _, cx| this.delete(delete_id.clone(), cx)),
+            )
+        });
+
+        let filter = self.filter;
+
         div()
             .flex()
             .flex_col()
@@ -130,8 +123,10 @@ impl Render for TodoApp {
             .p_6()
             .child(header())
             .child(self.input.clone())
-            .child(self.filter_bar.clone())
-            .child(self.list.clone())
+            .child(filter_bar(filter, |next| {
+                cx.listener(move |this, _, _, cx| this.set_filter(next, cx))
+            }))
+            .child(todo_list(rows))
     }
 }
 

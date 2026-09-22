@@ -123,7 +123,7 @@ fn create_notifies_active_query() {
         .unwrap();
 
     // Act
-    store.commit(created("1", "milk")).unwrap();
+    store.commit(created("1", "milk"), &mut ()).unwrap();
 
     // Assert
     assert_eq!(wait_for(&rx), vec![milk(false)]);
@@ -145,12 +145,12 @@ fn complete_moves_todo_between_queries() {
             done_tx.send(rows.to_vec()).unwrap();
         })
         .unwrap();
-    store.commit(created("1", "milk")).unwrap();
+    store.commit(created("1", "milk"), &mut ()).unwrap();
     assert_eq!(wait_for(&active_rx), vec![milk(false)]);
     assert_no_callback(&done_rx, "create should not notify completed query");
 
     // Act
-    store.commit(Event::Completed { id: "1".into() }).unwrap();
+    store.commit(Event::Completed { id: "1".into() }, &mut ()).unwrap();
 
     // Assert
     assert!(wait_for(&active_rx).is_empty());
@@ -173,14 +173,14 @@ fn delete_removes_from_both_queries() {
             done_tx.send(rows.to_vec()).unwrap();
         })
         .unwrap();
-    store.commit(created("1", "milk")).unwrap();
+    store.commit(created("1", "milk"), &mut ()).unwrap();
     wait_for(&active_rx);
-    store.commit(Event::Completed { id: "1".into() }).unwrap();
+    store.commit(Event::Completed { id: "1".into() }, &mut ()).unwrap();
     wait_for(&done_rx);
     wait_for(&active_rx);
 
     // Act
-    store.commit(Event::Deleted { id: "1".into() }).unwrap();
+    store.commit(Event::Deleted { id: "1".into() }, &mut ()).unwrap();
 
     // Assert
     assert!(wait_for(&done_rx).is_empty());
@@ -200,12 +200,12 @@ fn complete_already_completed_does_not_notify() {
             done_tx.send(rows.to_vec()).unwrap();
         })
         .unwrap();
-    store.commit(created("1", "milk")).unwrap();
-    store.commit(Event::Completed { id: "1".into() }).unwrap();
+    store.commit(created("1", "milk"), &mut ()).unwrap();
+    store.commit(Event::Completed { id: "1".into() }, &mut ()).unwrap();
     wait_for(&done_rx);
 
     // Act
-    store.commit(Event::Completed { id: "1".into() }).unwrap();
+    store.commit(Event::Completed { id: "1".into() }, &mut ()).unwrap();
 
     // Assert
     assert_no_callback(&done_rx, "equal result must not notify subscribers");
@@ -218,7 +218,7 @@ fn reopen_same_file_keeps_todos() {
     let path = dir.path().join("app.db");
     {
         let mut store = Store::open(&path, SCHEMA, TodoMutator).unwrap();
-        store.commit(created("1", "milk")).unwrap();
+        store.commit(created("1", "milk"), &mut ()).unwrap();
     }
 
     // Act
@@ -235,7 +235,7 @@ fn query_after_create_returns_row() {
     let mut store = open();
 
     // Act
-    store.commit(created("1", "milk")).unwrap();
+    store.commit(created("1", "milk"), &mut ()).unwrap();
 
     // Assert
     let rows = store.query(TodoQuery::Active).unwrap();
@@ -250,7 +250,7 @@ fn commit_updates_watched_query_without_requery() {
     assert!(active.rows().is_empty());
 
     // Act
-    store.commit(created("1", "milk")).unwrap();
+    store.commit(created("1", "milk"), &mut ()).unwrap();
 
     // Assert
     assert_eq!(active.rows(), vec![milk(false)]);
@@ -262,12 +262,12 @@ fn commit_updates_every_watched_query() {
     let mut store = open();
     let active = store.watch(TodoQuery::Active).unwrap();
     let completed = store.watch(TodoQuery::Completed).unwrap();
-    store.commit(created("1", "milk")).unwrap();
+    store.commit(created("1", "milk"), &mut ()).unwrap();
     assert_eq!(active.rows(), vec![milk(false)]);
     assert!(completed.rows().is_empty());
 
     // Act
-    store.commit(Event::Completed { id: "1".into() }).unwrap();
+    store.commit(Event::Completed { id: "1".into() }, &mut ()).unwrap();
 
     // Assert
     assert!(active.rows().is_empty());
@@ -281,9 +281,9 @@ fn many_commits_keep_watch_current() {
     let active = store.watch(TodoQuery::Active).unwrap();
 
     // Act
-    store.commit(created("1", "milk")).unwrap();
-    store.commit(created("2", "bread")).unwrap();
-    store.commit(Event::Completed { id: "1".into() }).unwrap();
+    store.commit(created("1", "milk"), &mut ()).unwrap();
+    store.commit(created("2", "bread"), &mut ()).unwrap();
+    store.commit(Event::Completed { id: "1".into() }, &mut ()).unwrap();
 
     // Assert
     assert_eq!(

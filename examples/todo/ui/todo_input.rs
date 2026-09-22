@@ -1,26 +1,27 @@
 use std::time::Duration;
 
 use gpui::{
-    App, Context, EventEmitter, FocusHandle, Focusable, KeyDownEvent, MouseButton, MouseDownEvent,
-    MouseUpEvent, Subscription, Window, actions, div, prelude::*, px, rgb,
+    App, Context, FocusHandle, Focusable, KeyDownEvent, MouseButton, MouseDownEvent, MouseUpEvent,
+    Subscription, Window, actions, div, prelude::*, px, rgb,
 };
 
 actions!(todo, [AddTodo, Backspace, ClearInput]);
-
-pub enum TodoInputEvent {
-    Submitted(String),
-}
 
 pub struct TodoInput {
     text: String,
     focus_handle: FocusHandle,
     caret_visible: bool,
     blink_epoch: u64,
+    on_submit: Box<dyn Fn(String, &mut Context<Self>)>,
     _subscriptions: Vec<Subscription>,
 }
 
 impl TodoInput {
-    pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub fn new(
+        window: &mut Window,
+        cx: &mut Context<Self>,
+        on_submit: impl Fn(String, &mut Context<Self>) + 'static,
+    ) -> Self {
         let focus_handle = cx.focus_handle();
         let focus = cx.on_focus(&focus_handle, window, |this, _, cx| this.start_caret(cx));
         let blur = cx.on_blur(&focus_handle, window, |this, _, cx| this.stop_caret(cx));
@@ -29,6 +30,7 @@ impl TodoInput {
             focus_handle,
             caret_visible: true,
             blink_epoch: 0,
+            on_submit: Box::new(on_submit),
             _subscriptions: vec![focus, blur],
         }
     }
@@ -60,7 +62,7 @@ impl TodoInput {
         }
         self.text.clear();
         self.start_caret(cx);
-        cx.emit(TodoInputEvent::Submitted(text));
+        (self.on_submit)(text, cx);
     }
 
     fn start_caret(&mut self, cx: &mut Context<Self>) {
@@ -102,8 +104,6 @@ impl TodoInput {
         self.start_caret(cx);
     }
 }
-
-impl EventEmitter<TodoInputEvent> for TodoInput {}
 
 impl Focusable for TodoInput {
     fn focus_handle(&self, _: &App) -> FocusHandle {
