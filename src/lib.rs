@@ -4,4 +4,4 @@
 mod store;
 
 pub use rusqlite;
-pub use store::{Error, Live, Mutator, Notify, Query, Result, Store};
+pub use store::{Error, Live, Mutator, Notify, Query, Result, Store, Subscription};

@@ -1,5 +1,5 @@
 use std::any::{Any, TypeId};
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::marker::PhantomData;
@@ -132,17 +132,65 @@ impl Hash for QueryKey {
     }
 }
 
-struct Subscription {
+struct Callback {
+    alive: Rc<Cell<bool>>,
+    f: Box<dyn FnMut(&dyn Any)>,
+}
+
+struct QuerySlot {
     last: Box<dyn Any>,
     execute: Box<dyn Fn(&Connection) -> Result<Box<dyn Any>>>,
     rows_eq: fn(&dyn Any, &dyn Any) -> bool,
-    callbacks: Vec<Box<dyn FnMut(&dyn Any)>>,
+    callbacks: Vec<Callback>,
+}
+
+struct Registry {
+    slots: HashMap<QueryKey, QuerySlot>,
+}
+
+/// Stops notifying and releases the query slot when dropped (or when the last
+/// `Live` for that watch is dropped).
+pub struct Subscription {
+    registry: Rc<RefCell<Registry>>,
+    key: QueryKey,
+    alive: Rc<Cell<bool>>,
+}
+
+impl Drop for Subscription {
+    fn drop(&mut self) {
+        self.alive.set(false);
+        if let Ok(mut registry) = self.registry.try_borrow_mut() {
+            prune_slot(&mut registry, &self.key);
+        }
+    }
+}
+
+fn prune_slot(registry: &mut Registry, key: &QueryKey) {
+    let empty = registry
+        .slots
+        .get_mut(key)
+        .map(|slot| {
+            slot.callbacks.retain(|cb| cb.alive.get());
+            slot.callbacks.is_empty()
+        })
+        .unwrap_or(false);
+    if empty {
+        registry.slots.remove(key);
+    }
+}
+
+fn prune_all(registry: &mut Registry) {
+    let keys: Vec<QueryKey> = registry.slots.keys().cloned().collect();
+    for key in keys {
+        prune_slot(registry, &key);
+    }
 }
 
 /// In-memory snapshot of a watched query. `commit` keeps this current; the
-/// consumer does not re-query after writes.
+/// consumer does not re-query after writes. Dropping `Live` unsubscribes.
 pub struct Live<Q: Query> {
     rows: Rc<RefCell<Vec<Q::Row>>>,
+    _subscription: Subscription,
     _query: PhantomData<Q>,
 }
 
@@ -157,7 +205,7 @@ impl<Q: Query> Live<Q> {
 pub struct Store<E> {
     conn: Connection,
     mutator: Box<dyn Mutator<E>>,
-    subscriptions: HashMap<QueryKey, Subscription>,
+    registry: Rc<RefCell<Registry>>,
 }
 
 impl<E> Store<E> {
@@ -181,7 +229,9 @@ impl<E> Store<E> {
         Ok(Self {
             conn,
             mutator: Box::new(mutator),
-            subscriptions: HashMap::new(),
+            registry: Rc::new(RefCell::new(Registry {
+                slots: HashMap::new(),
+            })),
         })
     }
 
@@ -205,69 +255,87 @@ impl<E> Store<E> {
     pub fn watch<Q: Query>(&mut self, query: Q) -> Result<Live<Q>> {
         let rows = Rc::new(RefCell::new(query.execute(&self.conn)?));
         let rows_for_cb = rows.clone();
-        self.subscribe(query, move |next| {
+        let subscription = self.subscribe(query, move |next| {
             *rows_for_cb.borrow_mut() = next.to_vec();
         })?;
         Ok(Live {
             rows,
+            _subscription: subscription,
             _query: PhantomData,
         })
     }
 
     /// Fires only when the result *changes* (not on subscribe, not on equal re-run).
+    /// Drop the returned `Subscription` to unsubscribe.
     pub fn subscribe<Q: Query>(
         &mut self,
         query: Q,
         mut on_change: impl FnMut(&[Q::Row]) + 'static,
-    ) -> Result<()> {
+    ) -> Result<Subscription> {
         let snapshot = query.execute(&self.conn)?;
         let key = QueryKey::new(&query);
-        let entry = self.subscriptions.entry(key).or_insert_with(|| {
-            let q = query.clone();
-            Subscription {
-                last: Box::new(snapshot.clone()),
-                execute: Box::new(move |conn| {
-                    let rows = q.execute(conn)?;
-                    Ok(Box::new(rows) as Box<dyn Any>)
-                }),
-                rows_eq: vec_eq::<Q::Row>,
-                callbacks: Vec::new(),
+        let alive = Rc::new(Cell::new(true));
+        {
+            let mut registry = self.registry.borrow_mut();
+            prune_all(&mut registry);
+            let entry = registry.slots.entry(key.clone()).or_insert_with(|| {
+                let q = query.clone();
+                QuerySlot {
+                    last: Box::new(snapshot.clone()),
+                    execute: Box::new(move |conn| {
+                        let rows = q.execute(conn)?;
+                        Ok(Box::new(rows) as Box<dyn Any>)
+                    }),
+                    rows_eq: vec_eq::<Q::Row>,
+                    callbacks: Vec::new(),
+                }
+            });
+            if entry.callbacks.is_empty() {
+                entry.last = Box::new(snapshot);
             }
-        });
-        if entry.callbacks.is_empty() {
-            entry.last = Box::new(snapshot);
+            let alive = alive.clone();
+            entry.callbacks.push(Callback {
+                alive,
+                f: Box::new(move |any: &dyn Any| {
+                    let rows = any.downcast_ref::<Vec<Q::Row>>().expect("query row type");
+                    on_change(rows);
+                }),
+            });
         }
-        entry.callbacks.push(Box::new(move |any: &dyn Any| {
-            let rows = any.downcast_ref::<Vec<Q::Row>>().expect("query row type");
-            on_change(rows);
-        }));
-        Ok(())
+        Ok(Subscription {
+            registry: self.registry.clone(),
+            key,
+            alive,
+        })
     }
 
     fn refresh(&mut self) -> Result<()> {
-        let keys: Vec<QueryKey> = self.subscriptions.keys().cloned().collect();
+        let mut registry = self.registry.borrow_mut();
+        prune_all(&mut registry);
+        let keys: Vec<QueryKey> = registry.slots.keys().cloned().collect();
 
         for key in keys {
             let next = {
-                let sub = self
-                    .subscriptions
-                    .get(&key)
-                    .expect("subscribed query");
-                (sub.execute)(&self.conn)?
+                let Some(slot) = registry.slots.get(&key) else {
+                    continue;
+                };
+                (slot.execute)(&self.conn)?
             };
-            let sub = self
-                .subscriptions
-                .get_mut(&key)
-                .expect("subscribed query");
-            if (sub.rows_eq)(&*next, &*sub.last) {
+            let Some(slot) = registry.slots.get_mut(&key) else {
+                continue;
+            };
+            if (slot.rows_eq)(&*next, &*slot.last) {
                 continue;
             }
-            sub.last = next;
-            let last = &*sub.last;
-            for cb in &mut sub.callbacks {
-                cb(last);
+            slot.last = next;
+            let last = &*slot.last;
+            for cb in &mut slot.callbacks {
+                if cb.alive.get() {
+                    (cb.f)(last);
+                }
             }
         }
+        prune_all(&mut registry);
         Ok(())
     }
 }

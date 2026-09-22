@@ -116,7 +116,7 @@ fn create_notifies_active_query() {
     // Arrange
     let mut store = open();
     let (tx, rx) = std::sync::mpsc::channel();
-    store
+    let _sub = store
         .subscribe(TodoQuery::Active, move |rows| {
             tx.send(rows.to_vec()).unwrap();
         })
@@ -135,12 +135,12 @@ fn complete_moves_todo_between_queries() {
     let mut store = open();
     let (active_tx, active_rx) = std::sync::mpsc::channel();
     let (done_tx, done_rx) = std::sync::mpsc::channel();
-    store
+    let _active = store
         .subscribe(TodoQuery::Active, move |rows| {
             active_tx.send(rows.to_vec()).unwrap();
         })
         .unwrap();
-    store
+    let _done = store
         .subscribe(TodoQuery::Completed, move |rows| {
             done_tx.send(rows.to_vec()).unwrap();
         })
@@ -163,12 +163,12 @@ fn delete_removes_from_both_queries() {
     let mut store = open();
     let (active_tx, active_rx) = std::sync::mpsc::channel();
     let (done_tx, done_rx) = std::sync::mpsc::channel();
-    store
+    let _active = store
         .subscribe(TodoQuery::Active, move |rows| {
             active_tx.send(rows.to_vec()).unwrap();
         })
         .unwrap();
-    store
+    let _done = store
         .subscribe(TodoQuery::Completed, move |rows| {
             done_tx.send(rows.to_vec()).unwrap();
         })
@@ -195,7 +195,7 @@ fn complete_already_completed_does_not_notify() {
     // Arrange
     let mut store = open();
     let (done_tx, done_rx) = std::sync::mpsc::channel();
-    store
+    let _done = store
         .subscribe(TodoQuery::Completed, move |rows| {
             done_tx.send(rows.to_vec()).unwrap();
         })
@@ -309,4 +309,59 @@ fn open_invalid_schema_is_sqlite_error() {
 
     // Assert
     assert!(matches!(err, Error::Sqlite(_)));
+}
+
+#[test]
+fn dropped_subscribe_does_not_notify() {
+    // Arrange
+    let mut store = open();
+    let (tx, rx) = std::sync::mpsc::channel();
+    let sub = store
+        .subscribe(TodoQuery::Active, move |rows| {
+            tx.send(rows.to_vec()).unwrap();
+        })
+        .unwrap();
+
+    // Act
+    drop(sub);
+    store.commit(created("1", "milk"), &mut ()).unwrap();
+
+    // Assert
+    assert_no_callback(&rx, "dropped subscribe must not notify");
+}
+
+#[test]
+fn dropped_watch_does_not_rerun_query() {
+    // Arrange
+    let mut store = open();
+    let fail = Rc::new(Cell::new(false));
+    let live = store
+        .watch(FlakyQuery {
+            fail: fail.clone(),
+        })
+        .unwrap();
+    drop(live);
+    fail.set(true);
+
+    // Act
+    store.commit(created("1", "milk"), &mut ()).unwrap();
+
+    // Assert — commit succeeds because the flaky query is no longer watched
+    let rows = store.query(TodoQuery::Active).unwrap();
+    assert_eq!(rows, vec![milk(false)]);
+}
+
+#[test]
+fn dropping_one_watch_keeps_the_other_current() {
+    // Arrange
+    let mut store = open();
+    let first = store.watch(TodoQuery::Active).unwrap();
+    let second = store.watch(TodoQuery::Active).unwrap();
+    drop(first);
+
+    // Act
+    store.commit(created("1", "milk"), &mut ()).unwrap();
+
+    // Assert
+    assert_eq!(second.rows(), vec![milk(false)]);
 }
