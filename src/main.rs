@@ -1,3 +1,3 @@
 fn main() {
-    println!("Hello, world!");
+    println!("homebase — consumers own schema, events, mutators, and queries");
 }

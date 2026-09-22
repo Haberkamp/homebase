@@ -4,3 +4,12 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+rusqlite = { version = "0.32", features = ["bundled"] }
+
+[dev-dependencies]
+gpui = "0.2.2"
+tempfile = "3"
+
+[[example]]
+name = "todo"
+path = "examples/todo/main.rs"

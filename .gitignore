@@ -1,2 +1,4 @@
 /target
 /.modules
+/examples/todo/*.db
+/examples/todo/*.db-*
