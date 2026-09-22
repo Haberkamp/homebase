@@ -8,6 +8,36 @@ use std::rc::Rc;
 
 use rusqlite::{Connection, Transaction};
 
+/// Store operation failure. Query and mutator SQLite errors surface as `Sqlite`.
+#[derive(Debug)]
+pub enum Error {
+    Sqlite(rusqlite::Error),
+}
+
+impl std::fmt::Display for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Sqlite(err) => write!(f, "{err}"),
+        }
+    }
+}
+
+impl std::error::Error for Error {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Sqlite(err) => Some(err),
+        }
+    }
+}
+
+impl From<rusqlite::Error> for Error {
+    fn from(err: rusqlite::Error) -> Self {
+        Self::Sqlite(err)
+    }
+}
+
+pub type Result<T> = std::result::Result<T, Error>;
+
 /// Something `commit` can notify after watches refresh. GPUI `Context` notifies
 /// the view; tests pass `&mut ()`.
 pub trait Notify {
@@ -104,7 +134,7 @@ impl Hash for QueryKey {
 
 struct Subscription {
     last: Box<dyn Any>,
-    execute: Box<dyn Fn(&Connection) -> Result<Box<dyn Any>, String>>,
+    execute: Box<dyn Fn(&Connection) -> Result<Box<dyn Any>>>,
     rows_eq: fn(&dyn Any, &dyn Any) -> bool,
     callbacks: Vec<Box<dyn FnMut(&dyn Any)>>,
 }
@@ -135,19 +165,17 @@ impl<E> Store<E> {
         path: impl AsRef<Path>,
         schema_sql: &str,
         mutator: impl Mutator<E> + 'static,
-    ) -> Result<Self, String> {
+    ) -> Result<Self> {
         let path = path.as_ref();
         let conn = if path.as_os_str() == ":memory:" {
             Connection::open_in_memory()
         } else {
             Connection::open(path)
-        }
-        .map_err(|e| e.to_string())?;
+        }?;
 
-        conn.execute_batch("PRAGMA journal_mode=WAL;")
-            .map_err(|e| e.to_string())?;
+        conn.execute_batch("PRAGMA journal_mode=WAL;")?;
         if !schema_sql.trim().is_empty() {
-            conn.execute_batch(schema_sql).map_err(|e| e.to_string())?;
+            conn.execute_batch(schema_sql)?;
         }
 
         Ok(Self {
@@ -157,27 +185,25 @@ impl<E> Store<E> {
         })
     }
 
-    pub fn commit(&mut self, event: E, cx: &mut impl Notify) -> Result<(), String> {
+    pub fn commit(&mut self, event: E, cx: &mut impl Notify) -> Result<()> {
         {
-            let tx = self.conn.transaction().map_err(|e| e.to_string())?;
-            self.mutator.apply(&tx, &event).map_err(|e| e.to_string())?;
-            tx.commit().map_err(|e| e.to_string())?;
+            let tx = self.conn.transaction()?;
+            self.mutator.apply(&tx, &event)?;
+            tx.commit()?;
         }
         self.refresh()?;
         cx.notify();
         Ok(())
     }
 
-    pub fn query<Q: Query>(&mut self, query: Q) -> Result<Vec<Q::Row>, String> {
-        query.execute(&self.conn).map_err(|e| e.to_string())
+    pub fn query<Q: Query>(&mut self, query: Q) -> Result<Vec<Q::Row>> {
+        Ok(query.execute(&self.conn)?)
     }
 
     /// Watch a query. After each `commit`, `Live::rows` matches SQLite without a
     /// follow-up `query`.
-    pub fn watch<Q: Query>(&mut self, query: Q) -> Result<Live<Q>, String> {
-        let rows = Rc::new(RefCell::new(
-            query.execute(&self.conn).map_err(|e| e.to_string())?,
-        ));
+    pub fn watch<Q: Query>(&mut self, query: Q) -> Result<Live<Q>> {
+        let rows = Rc::new(RefCell::new(query.execute(&self.conn)?));
         let rows_for_cb = rows.clone();
         self.subscribe(query, move |next| {
             *rows_for_cb.borrow_mut() = next.to_vec();
@@ -193,15 +219,15 @@ impl<E> Store<E> {
         &mut self,
         query: Q,
         mut on_change: impl FnMut(&[Q::Row]) + 'static,
-    ) -> Result<(), String> {
-        let snapshot = query.execute(&self.conn).map_err(|e| e.to_string())?;
+    ) -> Result<()> {
+        let snapshot = query.execute(&self.conn)?;
         let key = QueryKey::new(&query);
         let entry = self.subscriptions.entry(key).or_insert_with(|| {
             let q = query.clone();
             Subscription {
                 last: Box::new(snapshot.clone()),
                 execute: Box::new(move |conn| {
-                    let rows = q.execute(conn).map_err(|e| e.to_string())?;
+                    let rows = q.execute(conn)?;
                     Ok(Box::new(rows) as Box<dyn Any>)
                 }),
                 rows_eq: vec_eq::<Q::Row>,
@@ -218,7 +244,7 @@ impl<E> Store<E> {
         Ok(())
     }
 
-    fn refresh(&mut self) -> Result<(), String> {
+    fn refresh(&mut self) -> Result<()> {
         let keys: Vec<QueryKey> = self.subscriptions.keys().cloned().collect();
 
         for key in keys {

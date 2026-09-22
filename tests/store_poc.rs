@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use homebase::rusqlite::{self, Connection, Transaction, params};
-use homebase::{Mutator, Query, Store};
+use homebase::{Error, Mutator, Query, Store};
 use tempfile::tempdir;
 
 const SCHEMA: &str = "
@@ -294,4 +294,19 @@ fn many_commits_keep_watch_current() {
             completed: false,
         }]
     );
+}
+
+#[test]
+fn open_invalid_schema_is_sqlite_error() {
+    // Arrange
+    let schema = "not valid sql";
+
+    // Act
+    let err = match Store::<Event>::open(":memory:", schema, TodoMutator) {
+        Err(err) => err,
+        Ok(_) => panic!("expected sqlite error"),
+    };
+
+    // Assert
+    assert!(matches!(err, Error::Sqlite(_)));
 }
