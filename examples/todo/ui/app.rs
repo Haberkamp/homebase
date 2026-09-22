@@ -3,9 +3,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use gpui::{
     App, Context, Entity, FocusHandle, Focusable, Window, div, prelude::*, rgb,
 };
-use homebase::{Live, Store};
+use homebase::{Live, Select, Store, Table};
 
-use crate::domain::{Event, SCHEMA, Todo, TodoMutator, TodoQuery};
+use crate::domain::{Event, SCHEMA, Todo, TodoMutator};
 
 use super::filter::Filter;
 use super::filter_bar::filter_bar;
@@ -16,9 +16,9 @@ use super::todo_row::todo_row;
 
 pub struct TodoApp {
     store: Store<Event>,
-    active: Live<TodoQuery>,
-    completed: Live<TodoQuery>,
-    all: Live<TodoQuery>,
+    active: Live<Select<Todo>>,
+    completed: Live<Select<Todo>>,
+    all: Live<Select<Todo>>,
     filter: Filter,
     input: Entity<TodoInput>,
 }
@@ -30,11 +30,23 @@ impl TodoApp {
             let _ = std::fs::create_dir_all(parent);
         }
         let mut store = Store::open(&path, SCHEMA, TodoMutator).expect("open sqlite database");
-        let active = store.watch(TodoQuery::Active).expect("watch active todos");
+        let active = store
+            .watch(
+                Todo::query()
+                    .where_eq("completed", false)
+                    .order_by("id"),
+            )
+            .expect("watch active todos");
         let completed = store
-            .watch(TodoQuery::Completed)
+            .watch(
+                Todo::query()
+                    .where_eq("completed", true)
+                    .order_by("id"),
+            )
             .expect("watch completed todos");
-        let all = store.watch(TodoQuery::All).expect("watch all todos");
+        let all = store
+            .watch(Todo::query().order_by("id"))
+            .expect("watch all todos");
 
         let app = cx.weak_entity();
         let input = cx.new(|cx| {
@@ -56,10 +68,10 @@ impl TodoApp {
     }
 
     fn watched_rows(&self) -> Vec<Todo> {
-        match self.filter.query() {
-            TodoQuery::All => self.all.rows(),
-            TodoQuery::Active => self.active.rows(),
-            TodoQuery::Completed => self.completed.rows(),
+        match self.filter {
+            Filter::All => self.all.rows(),
+            Filter::Active => self.active.rows(),
+            Filter::Completed => self.completed.rows(),
         }
     }
 

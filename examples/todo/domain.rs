@@ -1,5 +1,5 @@
-use homebase::rusqlite::{self, Connection, Transaction, params};
-use homebase::{Mutator, Query};
+use homebase::rusqlite::{self, Row, Transaction, params};
+use homebase::{Mutator, Table};
 
 pub const SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS todos (
@@ -14,6 +14,18 @@ pub struct Todo {
     pub id: String,
     pub text: String,
     pub completed: bool,
+}
+
+impl Table for Todo {
+    const TABLE: &'static str = "todos";
+
+    fn from_row(row: &Row<'_>) -> rusqlite::Result<Self> {
+        Ok(Self {
+            id: row.get(0)?,
+            text: row.get(1)?,
+            completed: row.get::<_, i64>(2)? != 0,
+        })
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -46,37 +58,5 @@ impl Mutator<Event> for TodoMutator {
             }
         }
         Ok(())
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum TodoQuery {
-    Active,
-    Completed,
-    All,
-}
-
-impl Query for TodoQuery {
-    type Row = Todo;
-
-    fn execute(&self, conn: &Connection) -> rusqlite::Result<Vec<Todo>> {
-        let sql = match self {
-            TodoQuery::Active => {
-                "SELECT id, text, completed FROM todos WHERE completed = 0 ORDER BY id"
-            }
-            TodoQuery::Completed => {
-                "SELECT id, text, completed FROM todos WHERE completed = 1 ORDER BY id"
-            }
-            TodoQuery::All => "SELECT id, text, completed FROM todos ORDER BY id",
-        };
-        let mut stmt = conn.prepare(sql)?;
-        let rows = stmt.query_map([], |row| {
-            Ok(Todo {
-                id: row.get(0)?,
-                text: row.get(1)?,
-                completed: row.get::<_, i64>(2)? != 0,
-            })
-        })?;
-        rows.collect()
     }
 }

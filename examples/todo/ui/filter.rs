@@ -1,5 +1,3 @@
-use crate::domain::TodoQuery;
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Filter {
     All,
@@ -10,14 +8,6 @@ pub enum Filter {
 impl Filter {
     pub fn all() -> [Filter; 3] {
         [Filter::All, Filter::Active, Filter::Completed]
-    }
-
-    pub fn query(self) -> TodoQuery {
-        match self {
-            Filter::All => TodoQuery::All,
-            Filter::Active => TodoQuery::Active,
-            Filter::Completed => TodoQuery::Completed,
-        }
     }
 
     pub fn label(self) -> &'static str {
