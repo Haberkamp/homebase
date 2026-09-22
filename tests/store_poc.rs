@@ -241,3 +241,57 @@ fn query_after_create_returns_row() {
     let rows = store.query(TodoQuery::Active).unwrap();
     assert_eq!(rows, vec![milk(false)]);
 }
+
+#[test]
+fn commit_updates_watched_query_without_requery() {
+    // Arrange
+    let mut store = open();
+    let active = store.watch(TodoQuery::Active).unwrap();
+    assert!(active.rows().is_empty());
+
+    // Act
+    store.commit(created("1", "milk")).unwrap();
+
+    // Assert
+    assert_eq!(active.rows(), vec![milk(false)]);
+}
+
+#[test]
+fn commit_updates_every_watched_query() {
+    // Arrange
+    let mut store = open();
+    let active = store.watch(TodoQuery::Active).unwrap();
+    let completed = store.watch(TodoQuery::Completed).unwrap();
+    store.commit(created("1", "milk")).unwrap();
+    assert_eq!(active.rows(), vec![milk(false)]);
+    assert!(completed.rows().is_empty());
+
+    // Act
+    store.commit(Event::Completed { id: "1".into() }).unwrap();
+
+    // Assert
+    assert!(active.rows().is_empty());
+    assert_eq!(completed.rows(), vec![milk(true)]);
+}
+
+#[test]
+fn many_commits_keep_watch_current() {
+    // Arrange
+    let mut store = open();
+    let active = store.watch(TodoQuery::Active).unwrap();
+
+    // Act
+    store.commit(created("1", "milk")).unwrap();
+    store.commit(created("2", "bread")).unwrap();
+    store.commit(Event::Completed { id: "1".into() }).unwrap();
+
+    // Assert
+    assert_eq!(
+        active.rows(),
+        vec![Todo {
+            id: "2".into(),
+            text: "bread".into(),
+            completed: false,
+        }]
+    );
+}

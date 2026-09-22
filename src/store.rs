@@ -1,7 +1,10 @@
 use std::any::{Any, TypeId};
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
+use std::marker::PhantomData;
 use std::path::Path;
+use std::rc::Rc;
 
 use rusqlite::{Connection, Transaction};
 
@@ -90,6 +93,19 @@ struct Subscription {
     callbacks: Vec<Box<dyn FnMut(&dyn Any)>>,
 }
 
+/// In-memory snapshot of a watched query. `commit` keeps this current; the
+/// consumer does not re-query after writes.
+pub struct Live<Q: Query> {
+    rows: Rc<RefCell<Vec<Q::Row>>>,
+    _query: PhantomData<Q>,
+}
+
+impl<Q: Query> Live<Q> {
+    pub fn rows(&self) -> Vec<Q::Row> {
+        self.rows.borrow().clone()
+    }
+}
+
 /// Local-first SQLite store. Schema, events, mutators, and queries belong to
 /// the consumer.
 pub struct Store<E> {
@@ -136,6 +152,22 @@ impl<E> Store<E> {
 
     pub fn query<Q: Query>(&mut self, query: Q) -> Result<Vec<Q::Row>, String> {
         query.execute(&self.conn).map_err(|e| e.to_string())
+    }
+
+    /// Watch a query. After each `commit`, `Live::rows` matches SQLite without a
+    /// follow-up `query`.
+    pub fn watch<Q: Query>(&mut self, query: Q) -> Result<Live<Q>, String> {
+        let rows = Rc::new(RefCell::new(
+            query.execute(&self.conn).map_err(|e| e.to_string())?,
+        ));
+        let rows_for_cb = rows.clone();
+        self.subscribe(query, move |next| {
+            *rows_for_cb.borrow_mut() = next.to_vec();
+        })?;
+        Ok(Live {
+            rows,
+            _query: PhantomData,
+        })
     }
 
     /// Fires only when the result *changes* (not on subscribe, not on equal re-run).
