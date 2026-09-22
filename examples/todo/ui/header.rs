@@ -6,6 +6,10 @@ pub fn db_path() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("examples/todo/todos.db")
 }
 
+pub fn migrations_path() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("examples/todo/migrations")
+}
+
 pub fn header() -> impl IntoElement {
     let db = db_path();
     div()

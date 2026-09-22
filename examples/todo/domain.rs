@@ -1,14 +1,6 @@
 use homebase::rusqlite::{self, Row, Transaction};
 use homebase::{Mutator, Table};
 
-pub const SCHEMA: &str = "
-CREATE TABLE IF NOT EXISTS todos (
-    id TEXT PRIMARY KEY NOT NULL,
-    text TEXT NOT NULL,
-    completed INTEGER NOT NULL DEFAULT 0
-);
-";
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Todo {
     pub id: String,

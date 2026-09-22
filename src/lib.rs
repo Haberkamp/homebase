@@ -1,5 +1,5 @@
-//! Local-first SQLite store. Consumers define schema, models, events, mutators,
-//! and live queries.
+//! Local-first SQLite store. Consumers define schema (SQL migrations), models,
+//! events, mutators, and live queries.
 
 mod query;
 mod store;

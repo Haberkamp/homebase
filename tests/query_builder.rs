@@ -1,5 +1,6 @@
 use homebase::rusqlite::{self, Row, Transaction, params};
 use homebase::{Error, Mutator, Select, Store, Table};
+use tempfile::tempdir;
 
 const SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS todos (
@@ -68,13 +69,21 @@ impl Mutator<Event> for TodoMutator {
     }
 }
 
+fn migrate_dir(sql: &str) -> tempfile::TempDir {
+    let dir = tempdir().unwrap();
+    if !sql.trim().is_empty() {
+        std::fs::write(dir.path().join("001.sql"), sql).unwrap();
+    }
+    dir
+}
+
 fn open() -> Store<Event> {
-    Store::open(":memory:", SCHEMA, TodoMutator).unwrap()
+    let dir = migrate_dir(SCHEMA);
+    Store::open(":memory:", dir.path(), TodoMutator).unwrap()
 }
 
 fn open_nullable() -> Store<Event> {
-    Store::open(
-        ":memory:",
+    let dir = migrate_dir(
         "
         CREATE TABLE todos (
             id TEXT PRIMARY KEY NOT NULL,
@@ -82,9 +91,8 @@ fn open_nullable() -> Store<Event> {
             completed INTEGER NOT NULL DEFAULT 0
         );
         ",
-        TodoMutator,
-    )
-    .unwrap()
+    );
+    Store::open(":memory:", dir.path(), TodoMutator).unwrap()
 }
 
 fn created(id: &str, text: &str) -> Event {
@@ -931,6 +939,7 @@ fn offset_without_limit_is_error() {
         Err(Error::Sqlite(e)) => {
             assert!(e.to_string().contains("OFFSET requires LIMIT"));
         }
+        Err(Error::Io(e)) => panic!("expected sqlite error, got io: {e}"),
         Ok(_) => panic!("expected sqlite error"),
     }
 }

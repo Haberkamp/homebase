@@ -5,11 +5,11 @@ use gpui::{
 };
 use homebase::{Live, Select, Store, Table};
 
-use crate::domain::{Event, SCHEMA, Todo, TodoMutator};
+use crate::domain::{Event, Todo, TodoMutator};
 
 use super::filter::Filter;
 use super::filter_bar::filter_bar;
-use super::header::{db_path, header};
+use super::header::{db_path, header, migrations_path};
 use super::todo_input::TodoInput;
 use super::todo_list::todo_list;
 use super::todo_row::todo_row;
@@ -29,7 +29,8 @@ impl TodoApp {
         if let Some(parent) = path.parent() {
             let _ = std::fs::create_dir_all(parent);
         }
-        let mut store = Store::open(&path, SCHEMA, TodoMutator).expect("open sqlite database");
+        let mut store = Store::open(&path, migrations_path(), TodoMutator)
+            .expect("open sqlite database");
         let active = store
             .watch(
                 Todo::query()

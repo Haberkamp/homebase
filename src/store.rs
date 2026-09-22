@@ -1,6 +1,8 @@
 use std::any::{Any, TypeId};
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
+use std::ffi::OsStr;
+use std::fs;
 use std::hash::{Hash, Hasher};
 use std::marker::PhantomData;
 use std::path::Path;
@@ -12,12 +14,14 @@ use rusqlite::{Connection, Transaction};
 #[derive(Debug)]
 pub enum Error {
     Sqlite(rusqlite::Error),
+    Io(std::io::Error),
 }
 
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Sqlite(err) => write!(f, "{err}"),
+            Self::Io(err) => write!(f, "{err}"),
         }
     }
 }
@@ -26,6 +30,7 @@ impl std::error::Error for Error {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Sqlite(err) => Some(err),
+            Self::Io(err) => Some(err),
         }
     }
 }
@@ -33,6 +38,12 @@ impl std::error::Error for Error {
 impl From<rusqlite::Error> for Error {
     fn from(err: rusqlite::Error) -> Self {
         Self::Sqlite(err)
+    }
+}
+
+impl From<std::io::Error> for Error {
+    fn from(err: std::io::Error) -> Self {
+        Self::Io(err)
     }
 }
 
@@ -210,20 +221,18 @@ pub struct Store<E> {
 impl<E> Store<E> {
     pub fn open(
         path: impl AsRef<Path>,
-        schema_sql: &str,
+        migrations: impl AsRef<Path>,
         mutator: impl Mutator<E> + 'static,
     ) -> Result<Self> {
         let path = path.as_ref();
-        let conn = if path.as_os_str() == ":memory:" {
+        let mut conn = if path.as_os_str() == ":memory:" {
             Connection::open_in_memory()
         } else {
             Connection::open(path)
         }?;
 
         conn.execute_batch("PRAGMA journal_mode=WAL;")?;
-        if !schema_sql.trim().is_empty() {
-            conn.execute_batch(schema_sql)?;
-        }
+        apply_migrations(&mut conn, migrations.as_ref())?;
 
         Ok(Self {
             conn,
@@ -331,6 +340,47 @@ impl<E> Store<E> {
         prune_all(&mut registry);
         Ok(())
     }
+}
+
+fn apply_migrations(conn: &mut Connection, dir: &Path) -> Result<()> {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS migrations (
+            name TEXT PRIMARY KEY NOT NULL
+        );",
+    )?;
+
+    let mut files: Vec<_> = fs::read_dir(dir)?
+        .map(|entry| entry.map(|e| e.path()))
+        .collect::<std::io::Result<Vec<_>>>()?;
+    files.sort();
+
+    for path in files {
+        if path.extension() != Some(OsStr::new("sql")) {
+            continue;
+        }
+        let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+            continue;
+        };
+        let applied: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM migrations WHERE name = ?1",
+            [name],
+            |row| row.get(0),
+        )?;
+        if applied > 0 {
+            continue;
+        }
+
+        let sql = fs::read_to_string(&path)?;
+        let tx = conn.transaction()?;
+        tx.execute_batch(&sql)?;
+        tx.execute(
+            "INSERT INTO migrations (name) VALUES (?1)",
+            [name],
+        )?;
+        tx.commit()?;
+    }
+
+    Ok(())
 }
 
 fn vec_eq<R: PartialEq + 'static>(a: &dyn Any, b: &dyn Any) -> bool {

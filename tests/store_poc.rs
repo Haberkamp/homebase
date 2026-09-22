@@ -85,8 +85,17 @@ impl Query for TodoQuery {
     }
 }
 
+fn migrate_dir(sql: &str) -> tempfile::TempDir {
+    let dir = tempdir().unwrap();
+    if !sql.trim().is_empty() {
+        std::fs::write(dir.path().join("001.sql"), sql).unwrap();
+    }
+    dir
+}
+
 fn open() -> Store<Event> {
-    Store::open(":memory:", SCHEMA, TodoMutator).unwrap()
+    let dir = migrate_dir(SCHEMA);
+    Store::open(":memory:", dir.path(), TodoMutator).unwrap()
 }
 
 fn created(id: &str, text: &str) -> Event {
@@ -107,6 +116,7 @@ fn milk(completed: bool) -> Todo {
 fn expect_sqlite<T>(result: homebase::Result<T>) -> rusqlite::Error {
     match result {
         Err(Error::Sqlite(err)) => err,
+        Err(Error::Io(err)) => panic!("expected sqlite error, got io: {err}"),
         Ok(_) => panic!("expected sqlite error"),
     }
 }
@@ -212,13 +222,14 @@ fn reopen_same_file_keeps_todos() {
     // Arrange
     let dir = tempdir().unwrap();
     let path = dir.path().join("app.db");
+    let migrations = migrate_dir(SCHEMA);
     {
-        let mut store = Store::open(&path, SCHEMA, TodoMutator).unwrap();
+        let mut store = Store::open(&path, migrations.path(), TodoMutator).unwrap();
         store.commit(created("1", "milk"), &mut ()).unwrap();
     }
 
     // Act
-    let mut store = Store::open(&path, SCHEMA, TodoMutator).unwrap();
+    let mut store = Store::open(&path, migrations.path(), TodoMutator).unwrap();
     let active = store.watch(TodoQuery::Active).unwrap();
 
     // Assert
@@ -250,10 +261,10 @@ fn many_commits_keep_watch_current() {
 #[test]
 fn open_invalid_schema_is_sqlite_error() {
     // Arrange
-    let schema = "not valid sql";
+    let migrations = migrate_dir("not valid sql");
 
     // Act
-    let err = expect_sqlite(Store::<Event>::open(":memory:", schema, TodoMutator));
+    let err = expect_sqlite(Store::<Event>::open(":memory:", migrations.path(), TodoMutator));
 
     // Assert
     assert!(err.to_string().contains("syntax"));
@@ -263,9 +274,10 @@ fn open_invalid_schema_is_sqlite_error() {
 fn open_directory_path_is_sqlite_error() {
     // Arrange
     let dir = tempdir().unwrap();
+    let migrations = migrate_dir(SCHEMA);
 
     // Act
-    let err = expect_sqlite(Store::<Event>::open(dir.path(), SCHEMA, TodoMutator));
+    let err = expect_sqlite(Store::<Event>::open(dir.path(), migrations.path(), TodoMutator));
 
     // Assert
     assert!(!err.to_string().is_empty());
@@ -289,7 +301,8 @@ fn duplicate_create_is_sqlite_error_and_rolls_back() {
 #[test]
 fn watch_missing_table_is_sqlite_error() {
     // Arrange
-    let mut store = Store::open(":memory:", "", TodoMutator).unwrap();
+    let migrations = migrate_dir("");
+    let mut store = Store::open(":memory:", migrations.path(), TodoMutator).unwrap();
 
     // Act
     let err = expect_sqlite(store.watch(TodoQuery::Active));
@@ -301,7 +314,8 @@ fn watch_missing_table_is_sqlite_error() {
 #[test]
 fn commit_without_schema_is_sqlite_error() {
     // Arrange
-    let mut store = Store::open(":memory:", "", TodoMutator).unwrap();
+    let migrations = migrate_dir("");
+    let mut store = Store::open(":memory:", migrations.path(), TodoMutator).unwrap();
 
     // Act
     let err = expect_sqlite(store.commit(created("1", "milk"), &mut ()));

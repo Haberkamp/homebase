@@ -1,5 +1,6 @@
 use homebase::rusqlite::{self, Row, Transaction};
 use homebase::{Bind, Error, Mutator, Store, Table};
+use tempfile::tempdir;
 
 const SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS todos (
@@ -107,7 +108,9 @@ impl Mutator<Event> for TodoMutator {
 }
 
 fn open() -> Store<Event> {
-    Store::open(":memory:", SCHEMA, TodoMutator).unwrap()
+    let dir = tempdir().unwrap();
+    std::fs::write(dir.path().join("001.sql"), SCHEMA).unwrap();
+    Store::open(":memory:", dir.path(), TodoMutator).unwrap()
 }
 
 fn seed(store: &mut Store<Event>) {
@@ -129,6 +132,7 @@ fn rows(store: &mut Store<Event>) -> Vec<Todo> {
 fn expect_sqlite<T>(result: homebase::Result<T>) -> rusqlite::Error {
     match result {
         Err(Error::Sqlite(err)) => err,
+        Err(Error::Io(err)) => panic!("expected sqlite error, got io: {err}"),
         Ok(_) => panic!("expected sqlite error"),
     }
 }
