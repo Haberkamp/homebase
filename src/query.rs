@@ -26,6 +26,13 @@ pub trait Table: Clone + PartialEq + 'static {
         Select::new()
     }
 
+    fn find(id: impl Into<Bind>) -> First<Self>
+    where
+        Self: Sized,
+    {
+        Self::query().find(id)
+    }
+
     fn where_eq(column: impl Into<String>, value: impl Into<Bind>) -> Select<Self>
     where
         Self: Sized,
@@ -229,15 +236,9 @@ impl<M: Table> Select<M> {
     }
 
     /// Full custom SQLite. Bindings are `?1`, `?2`, …
-    pub fn sql(
-        sql: impl Into<String>,
-        params: impl IntoIterator<Item = impl Into<Bind>>,
-    ) -> Self {
+    pub fn sql(sql: impl Into<String>, params: impl IntoIterator<Item = impl Into<Bind>>) -> Self {
         let mut q = Self::new();
-        q.raw_sql = Some((
-            sql.into(),
-            params.into_iter().map(Into::into).collect(),
-        ));
+        q.raw_sql = Some((sql.into(), params.into_iter().map(Into::into).collect()));
         q
     }
 
@@ -581,6 +582,24 @@ impl<M: Table> Select<M> {
         self.offset((page - 1) * per_page).limit(per_page)
     }
 
+    pub fn first(self) -> First<M> {
+        First(self)
+    }
+
+    /// Look up by the model's first column (typically `id`).
+    pub fn find(self, id: impl Into<Bind>) -> First<M> {
+        let key = M::COLUMNS.first().copied().unwrap_or("id");
+        self.where_eq(key, id).first()
+    }
+
+    pub fn count(self) -> Count<M> {
+        Count(self)
+    }
+
+    pub fn exists(self) -> Exists<M> {
+        Exists(self)
+    }
+
     pub fn set(mut self, column: impl Into<String>, value: impl Into<Bind>) -> Self {
         self.sets.push((column.into(), value.into()));
         self
@@ -684,6 +703,104 @@ impl<M: Table> Select<M> {
 
         Ok((sql, binds))
     }
+
+    fn compile_from_where(&self) -> rusqlite::Result<(String, Vec<Bind>)> {
+        if let Some((sql, binds)) = &self.raw_sql {
+            return Ok((format!("({sql})"), binds.clone()));
+        }
+        let mut sql = quote_ident(&self.table)?;
+        let mut binds = Vec::new();
+        if !self.clauses.is_empty() {
+            sql.push_str(" WHERE ");
+            sql.push_str(&compile_where(&self.clauses, &mut binds)?);
+        }
+        Ok((sql, binds))
+    }
+}
+
+/// `SELECT ... LIMIT 1`, as `Option<M>`.
+#[derive(Clone, Debug)]
+pub struct First<M>(Select<M>);
+
+impl<M> PartialEq for First<M> {
+    fn eq(&self, other: &Self) -> bool {
+        self.0 == other.0
+    }
+}
+
+impl<M> Eq for First<M> {}
+
+impl<M> std::hash::Hash for First<M> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.0.hash(state);
+    }
+}
+
+impl<M: Table> Query for First<M> {
+    type Row = Option<M>;
+
+    fn execute(&self, conn: &Connection) -> rusqlite::Result<Option<M>> {
+        let mut inner = self.0.clone();
+        inner.limit = Some(1);
+        Ok(inner.execute(conn)?.into_iter().next())
+    }
+}
+
+/// `SELECT COUNT(*)`.
+#[derive(Clone, Debug)]
+pub struct Count<M>(Select<M>);
+
+impl<M> PartialEq for Count<M> {
+    fn eq(&self, other: &Self) -> bool {
+        self.0 == other.0
+    }
+}
+
+impl<M> Eq for Count<M> {}
+
+impl<M> std::hash::Hash for Count<M> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.0.hash(state);
+    }
+}
+
+impl<M: Table> Query for Count<M> {
+    type Row = i64;
+
+    fn execute(&self, conn: &Connection) -> rusqlite::Result<i64> {
+        let (from, binds) = self.0.compile_from_where()?;
+        let sql = format!("SELECT COUNT(*) FROM {from}");
+        conn.query_row(&sql, params_from_iter(binds), |row| row.get(0))
+    }
+}
+
+/// `SELECT EXISTS(...)`.
+#[derive(Clone, Debug)]
+pub struct Exists<M>(Select<M>);
+
+impl<M> PartialEq for Exists<M> {
+    fn eq(&self, other: &Self) -> bool {
+        self.0 == other.0
+    }
+}
+
+impl<M> Eq for Exists<M> {}
+
+impl<M> std::hash::Hash for Exists<M> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.0.hash(state);
+    }
+}
+
+impl<M: Table> Query for Exists<M> {
+    type Row = bool;
+
+    fn execute(&self, conn: &Connection) -> rusqlite::Result<bool> {
+        let (from, binds) = self.0.compile_from_where()?;
+        let sql = format!("SELECT EXISTS(SELECT 1 FROM {from} LIMIT 1)");
+        let n: i64 = conn.query_row(&sql, params_from_iter(binds), |row| row.get(0))?;
+        Ok(n != 0)
+    }
 }
 
 impl<M> PartialEq for Select<M> {
@@ -723,7 +840,7 @@ impl<M: Table> Default for Select<M> {
 }
 
 impl<M: Table> Query for Select<M> {
-    type Row = M;
+    type Row = Vec<M>;
 
     fn execute(&self, conn: &Connection) -> rusqlite::Result<Vec<M>> {
         let (sql, binds) = self.compile()?;
@@ -734,10 +851,7 @@ impl<M: Table> Query for Select<M> {
 }
 
 fn quote_ident(name: &str) -> rusqlite::Result<String> {
-    let ok = !name.is_empty()
-        && name
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '_');
+    let ok = !name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
     if ok {
         Ok(format!("\"{name}\""))
     } else {
@@ -783,10 +897,7 @@ fn compile_predicate(pred: &Predicate, binds: &mut Vec<Bind>) -> rusqlite::Resul
             let placeholders = vec!["?"; values.len()].join(", ");
             binds.extend(values.iter().cloned());
             let not = if *not { " NOT" } else { "" };
-            Ok(format!(
-                "{}{not} IN ({placeholders})",
-                quote_ident(column)?
-            ))
+            Ok(format!("{}{not} IN ({placeholders})", quote_ident(column)?))
         }
         Predicate::Null { column, not } => {
             let op = if *not { "IS NOT NULL" } else { "IS NULL" };

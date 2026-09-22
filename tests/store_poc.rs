@@ -62,7 +62,7 @@ enum TodoQuery {
 }
 
 impl Query for TodoQuery {
-    type Row = Todo;
+    type Row = Vec<Todo>;
 
     fn execute(&self, conn: &Connection) -> rusqlite::Result<Vec<Todo>> {
         let sql = match self {
@@ -141,7 +141,7 @@ impl Hash for FlakyQuery {
 }
 
 impl Query for FlakyQuery {
-    type Row = Todo;
+    type Row = Vec<Todo>;
 
     fn execute(&self, conn: &Connection) -> rusqlite::Result<Vec<Todo>> {
         if self.fail.get() {
@@ -175,7 +175,9 @@ fn complete_moves_todo_between_watches() {
     assert!(completed.rows().is_empty());
 
     // Act
-    store.commit(Event::Completed { id: "1".into() }, &mut ()).unwrap();
+    store
+        .commit(Event::Completed { id: "1".into() }, &mut ())
+        .unwrap();
 
     // Assert
     assert!(active.rows().is_empty());
@@ -189,12 +191,16 @@ fn delete_clears_completed_watch() {
     let active = store.watch(TodoQuery::Active).unwrap();
     let completed = store.watch(TodoQuery::Completed).unwrap();
     store.commit(created("1", "milk"), &mut ()).unwrap();
-    store.commit(Event::Completed { id: "1".into() }, &mut ()).unwrap();
+    store
+        .commit(Event::Completed { id: "1".into() }, &mut ())
+        .unwrap();
     assert!(active.rows().is_empty());
     assert_eq!(completed.rows(), vec![milk(true)]);
 
     // Act
-    store.commit(Event::Deleted { id: "1".into() }, &mut ()).unwrap();
+    store
+        .commit(Event::Deleted { id: "1".into() }, &mut ())
+        .unwrap();
 
     // Assert
     assert!(active.rows().is_empty());
@@ -207,11 +213,15 @@ fn complete_already_completed_keeps_same_rows() {
     let mut store = open();
     let completed = store.watch(TodoQuery::Completed).unwrap();
     store.commit(created("1", "milk"), &mut ()).unwrap();
-    store.commit(Event::Completed { id: "1".into() }, &mut ()).unwrap();
+    store
+        .commit(Event::Completed { id: "1".into() }, &mut ())
+        .unwrap();
     assert_eq!(completed.rows(), vec![milk(true)]);
 
     // Act
-    store.commit(Event::Completed { id: "1".into() }, &mut ()).unwrap();
+    store
+        .commit(Event::Completed { id: "1".into() }, &mut ())
+        .unwrap();
 
     // Assert
     assert_eq!(completed.rows(), vec![milk(true)]);
@@ -245,7 +255,9 @@ fn many_commits_keep_watch_current() {
     // Act
     store.commit(created("1", "milk"), &mut ()).unwrap();
     store.commit(created("2", "bread"), &mut ()).unwrap();
-    store.commit(Event::Completed { id: "1".into() }, &mut ()).unwrap();
+    store
+        .commit(Event::Completed { id: "1".into() }, &mut ())
+        .unwrap();
 
     // Assert
     assert_eq!(
@@ -264,7 +276,11 @@ fn open_invalid_schema_is_sqlite_error() {
     let migrations = migrate_dir("not valid sql");
 
     // Act
-    let err = expect_sqlite(Store::<Event>::open(":memory:", migrations.path(), TodoMutator));
+    let err = expect_sqlite(Store::<Event>::open(
+        ":memory:",
+        migrations.path(),
+        TodoMutator,
+    ));
 
     // Assert
     assert!(err.to_string().contains("syntax"));
@@ -277,7 +293,11 @@ fn open_directory_path_is_sqlite_error() {
     let migrations = migrate_dir(SCHEMA);
 
     // Act
-    let err = expect_sqlite(Store::<Event>::open(dir.path(), migrations.path(), TodoMutator));
+    let err = expect_sqlite(Store::<Event>::open(
+        dir.path(),
+        migrations.path(),
+        TodoMutator,
+    ));
 
     // Assert
     assert!(!err.to_string().is_empty());
@@ -329,11 +349,7 @@ fn refresh_query_failure_is_sqlite_error() {
     // Arrange
     let mut store = open();
     let fail = Rc::new(Cell::new(false));
-    let _live = store
-        .watch(FlakyQuery {
-            fail: fail.clone(),
-        })
-        .unwrap();
+    let _live = store.watch(FlakyQuery { fail: fail.clone() }).unwrap();
     fail.set(true);
 
     // Act
@@ -348,11 +364,7 @@ fn dropped_watch_does_not_rerun_query() {
     // Arrange
     let mut store = open();
     let fail = Rc::new(Cell::new(false));
-    let live = store
-        .watch(FlakyQuery {
-            fail: fail.clone(),
-        })
-        .unwrap();
+    let live = store.watch(FlakyQuery { fail: fail.clone() }).unwrap();
     drop(live);
     fail.set(true);
 

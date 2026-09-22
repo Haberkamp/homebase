@@ -1,8 +1,6 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use gpui::{
-    App, Context, Entity, FocusHandle, Focusable, Window, div, prelude::*, rgb,
-};
+use gpui::{App, Context, Entity, FocusHandle, Focusable, Window, div, prelude::*, rgb};
 use homebase::{Live, Select, Store, Table};
 
 use crate::domain::{Event, Todo, TodoMutator};
@@ -29,21 +27,13 @@ impl TodoApp {
         if let Some(parent) = path.parent() {
             let _ = std::fs::create_dir_all(parent);
         }
-        let mut store = Store::open(&path, migrations_path(), TodoMutator)
-            .expect("open sqlite database");
+        let mut store =
+            Store::open(&path, migrations_path(), TodoMutator).expect("open sqlite database");
         let active = store
-            .watch(
-                Todo::query()
-                    .where_eq("completed", false)
-                    .order_by("id"),
-            )
+            .watch(Todo::query().where_eq("completed", false).order_by("id"))
             .expect("watch active todos");
         let completed = store
-            .watch(
-                Todo::query()
-                    .where_eq("completed", true)
-                    .order_by("id"),
-            )
+            .watch(Todo::query().where_eq("completed", true).order_by("id"))
             .expect("watch completed todos");
         let all = store
             .watch(Todo::query().order_by("id"))

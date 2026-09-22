@@ -66,8 +66,16 @@ fn applies_sql_files_in_filename_order() {
     let root = tempdir().unwrap();
     let migrations = root.path().join("migrations");
     std::fs::create_dir(&migrations).unwrap();
-    write_sql(&migrations, "002_second.sql", "CREATE TABLE second (id INTEGER);");
-    write_sql(&migrations, "001_first.sql", "CREATE TABLE first (id INTEGER);");
+    write_sql(
+        &migrations,
+        "002_second.sql",
+        "CREATE TABLE second (id INTEGER);",
+    );
+    write_sql(
+        &migrations,
+        "001_first.sql",
+        "CREATE TABLE first (id INTEGER);",
+    );
     let db = root.path().join("app.db");
 
     // Act

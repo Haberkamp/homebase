@@ -80,10 +80,13 @@ where
 }
 
 /// A live query defined by the consumer.
+///
+/// [`Select`](crate::Select) yields `Vec<M>`. [`First`](crate::First) yields
+/// `Option<M>`, [`Count`](crate::Count) an `i64`, [`Exists`](crate::Exists) a `bool`.
 pub trait Query: Clone + Eq + Hash + 'static {
     type Row: Clone + PartialEq + 'static;
 
-    fn execute(&self, conn: &Connection) -> rusqlite::Result<Vec<Self::Row>>;
+    fn execute(&self, conn: &Connection) -> rusqlite::Result<Self::Row>;
 }
 
 struct QueryKey {
@@ -199,13 +202,13 @@ fn prune_all(registry: &mut Registry) {
 /// In-memory snapshot of a watched query. `commit` keeps this current; the
 /// consumer does not re-query after writes. Dropping `Live` unsubscribes.
 pub struct Live<Q: Query> {
-    rows: Rc<RefCell<Vec<Q::Row>>>,
+    rows: Rc<RefCell<Q::Row>>,
     _subscription: Subscription,
     _query: PhantomData<Q>,
 }
 
 impl<Q: Query> Live<Q> {
-    pub fn rows(&self) -> Vec<Q::Row> {
+    pub fn rows(&self) -> Q::Row {
         self.rows.borrow().clone()
     }
 }
@@ -260,7 +263,7 @@ impl<E> Store<E> {
         let rows = Rc::new(RefCell::new(query.execute(&self.conn)?));
         let rows_for_cb = rows.clone();
         let subscription = self.subscribe(query, move |next| {
-            *rows_for_cb.borrow_mut() = next.to_vec();
+            *rows_for_cb.borrow_mut() = next.clone();
         })?;
         Ok(Live {
             rows,
@@ -272,7 +275,7 @@ impl<E> Store<E> {
     fn subscribe<Q: Query>(
         &mut self,
         query: Q,
-        mut on_change: impl FnMut(&[Q::Row]) + 'static,
+        mut on_change: impl FnMut(&Q::Row) + 'static,
     ) -> Result<Subscription> {
         let snapshot = query.execute(&self.conn)?;
         let key = QueryKey::new(&query);
@@ -288,7 +291,7 @@ impl<E> Store<E> {
                         let rows = q.execute(conn)?;
                         Ok(Box::new(rows) as Box<dyn Any>)
                     }),
-                    rows_eq: vec_eq::<Q::Row>,
+                    rows_eq: value_eq::<Q::Row>,
                     callbacks: Vec::new(),
                 }
             });
@@ -299,7 +302,7 @@ impl<E> Store<E> {
             entry.callbacks.push(Callback {
                 alive,
                 f: Box::new(move |any: &dyn Any| {
-                    let rows = any.downcast_ref::<Vec<Q::Row>>().expect("query row type");
+                    let rows = any.downcast_ref::<Q::Row>().expect("query row type");
                     on_change(rows);
                 }),
             });
@@ -373,16 +376,13 @@ fn apply_migrations(conn: &mut Connection, dir: &Path) -> Result<()> {
         let sql = fs::read_to_string(&path)?;
         let tx = conn.transaction()?;
         tx.execute_batch(&sql)?;
-        tx.execute(
-            "INSERT INTO migrations (name) VALUES (?1)",
-            [name],
-        )?;
+        tx.execute("INSERT INTO migrations (name) VALUES (?1)", [name])?;
         tx.commit()?;
     }
 
     Ok(())
 }
 
-fn vec_eq<R: PartialEq + 'static>(a: &dyn Any, b: &dyn Any) -> bool {
-    a.downcast_ref::<Vec<R>>() == b.downcast_ref::<Vec<R>>()
+fn value_eq<R: PartialEq + 'static>(a: &dyn Any, b: &dyn Any) -> bool {
+    a.downcast_ref::<R>() == b.downcast_ref::<R>()
 }

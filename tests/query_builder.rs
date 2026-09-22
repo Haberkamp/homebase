@@ -259,7 +259,10 @@ fn where_lte_includes_boundary() {
     seed(&mut store);
 
     // Act
-    let rows = run(&mut store, Todo::query().where_lte("id", "2").order_by("id"));
+    let rows = run(
+        &mut store,
+        Todo::query().where_lte("id", "2").order_by("id"),
+    );
 
     // Assert
     assert_eq!(rows, vec![milk(), bread()]);
@@ -285,7 +288,10 @@ fn where_gte_includes_boundary() {
     seed(&mut store);
 
     // Act
-    let rows = run(&mut store, Todo::query().where_gte("id", "2").order_by("id"));
+    let rows = run(
+        &mut store,
+        Todo::query().where_gte("id", "2").order_by("id"),
+    );
 
     // Assert
     assert_eq!(rows, vec![bread(), eggs()]);
@@ -387,10 +393,7 @@ fn where_in_empty_matches_nothing() {
     seed(&mut store);
 
     // Act
-    let rows = run(
-        &mut store,
-        Todo::query().where_in("id", Vec::<&str>::new()),
-    );
+    let rows = run(&mut store, Todo::query().where_in("id", Vec::<&str>::new()));
 
     // Assert
     assert!(rows.is_empty());
@@ -405,9 +408,7 @@ fn where_not_in_excludes_listed_values() {
     // Act
     let rows = run(
         &mut store,
-        Todo::query()
-            .where_not_in("id", ["1", "3"])
-            .order_by("id"),
+        Todo::query().where_not_in("id", ["1", "3"]).order_by("id"),
     );
 
     // Assert
@@ -459,10 +460,7 @@ fn where_null_matches_null_column() {
     seed_nullable(&mut store);
 
     // Act
-    let rows = run(
-        &mut store,
-        Todo::query().where_null("text").order_by("id"),
-    );
+    let rows = run(&mut store, Todo::query().where_null("text").order_by("id"));
 
     // Assert
     assert_eq!(rows, vec![null_text()]);
@@ -843,10 +841,7 @@ fn reorder_clears_previous_order() {
     // Act
     let rows = run(
         &mut store,
-        Todo::query()
-            .order_by_desc("id")
-            .reorder()
-            .order_by("id"),
+        Todo::query().order_by_desc("id").reorder().order_by("id"),
     );
 
     // Assert
@@ -889,10 +884,7 @@ fn offset_skips_rows() {
     seed(&mut store);
 
     // Act
-    let rows = run(
-        &mut store,
-        Todo::query().order_by("id").limit(1).offset(2),
-    );
+    let rows = run(&mut store, Todo::query().order_by("id").limit(1).offset(2));
 
     // Assert
     assert_eq!(rows, vec![eggs()]);
@@ -956,6 +948,255 @@ fn for_page_is_one_indexed() {
     // Assert
     assert_eq!(first, vec![milk(), bread()]);
     assert_eq!(second, vec![eggs()]);
+}
+
+#[test]
+fn first_returns_the_first_ordered_row() {
+    // Arrange
+    let mut store = open();
+    seed(&mut store);
+
+    // Act
+    let row = store
+        .watch(Todo::query().order_by("id").first())
+        .unwrap()
+        .rows();
+
+    // Assert
+    assert_eq!(row, Some(milk()));
+}
+
+#[test]
+fn first_respects_descending_order() {
+    // Arrange
+    let mut store = open();
+    seed(&mut store);
+
+    // Act
+    let row = store
+        .watch(Todo::query().order_by_desc("id").first())
+        .unwrap()
+        .rows();
+
+    // Assert
+    assert_eq!(row, Some(eggs()));
+}
+
+#[test]
+fn first_respects_where() {
+    // Arrange
+    let mut store = open();
+    seed(&mut store);
+
+    // Act
+    let row = store
+        .watch(
+            Todo::query()
+                .where_eq("completed", false)
+                .order_by("id")
+                .first(),
+        )
+        .unwrap()
+        .rows();
+
+    // Assert
+    assert_eq!(row, Some(milk()));
+}
+
+#[test]
+fn first_returns_none_when_empty() {
+    // Arrange
+    let mut store = open();
+
+    // Act
+    let row = store.watch(Todo::query().first()).unwrap().rows();
+
+    // Assert
+    assert_eq!(row, None);
+}
+
+#[test]
+fn first_watch_stays_current_after_commit() {
+    // Arrange
+    let mut store = open();
+    let live = store.watch(Todo::query().order_by("id").first()).unwrap();
+
+    // Act
+    store.commit(created("1", "milk"), &mut ()).unwrap();
+
+    // Assert
+    assert_eq!(live.rows(), Some(milk()));
+}
+
+#[test]
+fn find_returns_the_row_with_that_id() {
+    // Arrange
+    let mut store = open();
+    seed(&mut store);
+
+    // Act
+    let row = store.watch(Todo::query().find("2")).unwrap().rows();
+
+    // Assert
+    assert_eq!(row, Some(bread()));
+}
+
+#[test]
+fn find_on_model_looks_up_by_id() {
+    // Arrange
+    let mut store = open();
+    seed(&mut store);
+
+    // Act
+    let row = store.watch(Todo::find("1")).unwrap().rows();
+
+    // Assert
+    assert_eq!(row, Some(milk()));
+}
+
+#[test]
+fn find_returns_none_when_missing() {
+    // Arrange
+    let mut store = open();
+    seed(&mut store);
+
+    // Act
+    let row = store.watch(Todo::find("missing")).unwrap().rows();
+
+    // Assert
+    assert_eq!(row, None);
+}
+
+#[test]
+fn find_keeps_existing_where_clauses() {
+    // Arrange
+    let mut store = open();
+    seed(&mut store);
+
+    // Act
+    let matching = store
+        .watch(Todo::query().where_eq("completed", true).find("2"))
+        .unwrap()
+        .rows();
+    let excluded = store
+        .watch(Todo::query().where_eq("completed", false).find("2"))
+        .unwrap()
+        .rows();
+
+    // Assert
+    assert_eq!(matching, Some(bread()));
+    assert_eq!(excluded, None);
+}
+
+#[test]
+fn count_returns_every_row() {
+    // Arrange
+    let mut store = open();
+    seed(&mut store);
+
+    // Act
+    let n = store.watch(Todo::query().count()).unwrap().rows();
+
+    // Assert
+    assert_eq!(n, 3);
+}
+
+#[test]
+fn count_respects_where() {
+    // Arrange
+    let mut store = open();
+    seed(&mut store);
+
+    // Act
+    let n = store
+        .watch(Todo::query().where_eq("completed", false).count())
+        .unwrap()
+        .rows();
+
+    // Assert
+    assert_eq!(n, 2);
+}
+
+#[test]
+fn count_is_zero_when_empty() {
+    // Arrange
+    let mut store = open();
+
+    // Act
+    let n = store.watch(Todo::query().count()).unwrap().rows();
+
+    // Assert
+    assert_eq!(n, 0);
+}
+
+#[test]
+fn count_watch_stays_current_after_commit() {
+    // Arrange
+    let mut store = open();
+    let live = store.watch(Todo::query().count()).unwrap();
+
+    // Act
+    store.commit(created("1", "milk"), &mut ()).unwrap();
+
+    // Assert
+    assert_eq!(live.rows(), 1);
+}
+
+#[test]
+fn exists_is_true_when_a_row_matches() {
+    // Arrange
+    let mut store = open();
+    seed(&mut store);
+
+    // Act
+    let yes = store
+        .watch(Todo::query().where_eq("id", "1").exists())
+        .unwrap()
+        .rows();
+
+    // Assert
+    assert!(yes);
+}
+
+#[test]
+fn exists_is_false_when_none_match() {
+    // Arrange
+    let mut store = open();
+    seed(&mut store);
+
+    // Act
+    let no = store
+        .watch(Todo::query().where_eq("id", "missing").exists())
+        .unwrap()
+        .rows();
+
+    // Assert
+    assert!(!no);
+}
+
+#[test]
+fn exists_is_false_when_empty() {
+    // Arrange
+    let mut store = open();
+
+    // Act
+    let no = store.watch(Todo::query().exists()).unwrap().rows();
+
+    // Assert
+    assert!(!no);
+}
+
+#[test]
+fn exists_watch_stays_current_after_commit() {
+    // Arrange
+    let mut store = open();
+    let live = store.watch(Todo::query().exists()).unwrap();
+
+    // Act
+    store.commit(created("1", "milk"), &mut ()).unwrap();
+
+    // Assert
+    assert!(live.rows());
 }
 
 #[test]
