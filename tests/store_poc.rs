@@ -1,3 +1,6 @@
+use std::cell::Cell;
+use std::hash::{Hash, Hasher};
+use std::rc::Rc;
 use std::time::Duration;
 
 use homebase::rusqlite::{self, Connection, Transaction, params};
@@ -109,6 +112,43 @@ fn wait_for(rx: &std::sync::mpsc::Receiver<Vec<Todo>>) -> Vec<Todo> {
 
 fn assert_no_callback(rx: &std::sync::mpsc::Receiver<Vec<Todo>>, msg: &str) {
     assert!(rx.recv_timeout(Duration::from_millis(50)).is_err(), "{msg}");
+}
+
+fn expect_sqlite<T>(result: homebase::Result<T>) -> rusqlite::Error {
+    match result {
+        Err(Error::Sqlite(err)) => err,
+        Ok(_) => panic!("expected sqlite error"),
+    }
+}
+
+#[derive(Clone)]
+struct FlakyQuery {
+    fail: Rc<Cell<bool>>,
+}
+
+impl PartialEq for FlakyQuery {
+    fn eq(&self, _: &Self) -> bool {
+        true
+    }
+}
+
+impl Eq for FlakyQuery {}
+
+impl Hash for FlakyQuery {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        0u8.hash(state);
+    }
+}
+
+impl Query for FlakyQuery {
+    type Row = Todo;
+
+    fn execute(&self, conn: &Connection) -> rusqlite::Result<Vec<Todo>> {
+        if self.fail.get() {
+            return Err(rusqlite::Error::QueryReturnedNoRows);
+        }
+        TodoQuery::Active.execute(conn)
+    }
 }
 
 #[test]
@@ -302,11 +342,102 @@ fn open_invalid_schema_is_sqlite_error() {
     let schema = "not valid sql";
 
     // Act
-    let err = match Store::<Event>::open(":memory:", schema, TodoMutator) {
-        Err(err) => err,
-        Ok(_) => panic!("expected sqlite error"),
-    };
+    let err = expect_sqlite(Store::<Event>::open(":memory:", schema, TodoMutator));
 
     // Assert
-    assert!(matches!(err, Error::Sqlite(_)));
+    assert!(err.to_string().contains("syntax"));
+}
+
+#[test]
+fn open_directory_path_is_sqlite_error() {
+    // Arrange
+    let dir = tempdir().unwrap();
+
+    // Act
+    let err = expect_sqlite(Store::<Event>::open(dir.path(), SCHEMA, TodoMutator));
+
+    // Assert
+    assert!(!err.to_string().is_empty());
+}
+
+#[test]
+fn duplicate_create_is_sqlite_error_and_rolls_back() {
+    // Arrange
+    let mut store = open();
+    store.commit(created("1", "milk"), &mut ()).unwrap();
+
+    // Act
+    let err = expect_sqlite(store.commit(created("1", "again"), &mut ()));
+
+    // Assert
+    assert!(err.to_string().contains("UNIQUE constraint failed"));
+    let rows = store.query(TodoQuery::Active).unwrap();
+    assert_eq!(rows, vec![milk(false)]);
+}
+
+#[test]
+fn query_missing_table_is_sqlite_error() {
+    // Arrange
+    let mut store = Store::open(":memory:", "", TodoMutator).unwrap();
+
+    // Act
+    let err = expect_sqlite(store.query(TodoQuery::Active));
+
+    // Assert
+    assert!(err.to_string().contains("no such table"));
+}
+
+#[test]
+fn watch_missing_table_is_sqlite_error() {
+    // Arrange
+    let mut store = Store::open(":memory:", "", TodoMutator).unwrap();
+
+    // Act
+    let err = expect_sqlite(store.watch(TodoQuery::Active));
+
+    // Assert
+    assert!(err.to_string().contains("no such table"));
+}
+
+#[test]
+fn subscribe_missing_table_is_sqlite_error() {
+    // Arrange
+    let mut store = Store::open(":memory:", "", TodoMutator).unwrap();
+
+    // Act
+    let err = expect_sqlite(store.subscribe(TodoQuery::Active, |_| {}));
+
+    // Assert
+    assert!(err.to_string().contains("no such table"));
+}
+
+#[test]
+fn commit_without_schema_is_sqlite_error() {
+    // Arrange
+    let mut store = Store::open(":memory:", "", TodoMutator).unwrap();
+
+    // Act
+    let err = expect_sqlite(store.commit(created("1", "milk"), &mut ()));
+
+    // Assert
+    assert!(err.to_string().contains("no such table"));
+}
+
+#[test]
+fn refresh_query_failure_is_sqlite_error() {
+    // Arrange
+    let mut store = open();
+    let fail = Rc::new(Cell::new(false));
+    let _live = store
+        .watch(FlakyQuery {
+            fail: fail.clone(),
+        })
+        .unwrap();
+    fail.set(true);
+
+    // Act
+    let err = expect_sqlite(store.commit(created("1", "milk"), &mut ()));
+
+    // Assert
+    assert!(err.to_string().contains("Query returned no rows"));
 }
