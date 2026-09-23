@@ -120,18 +120,18 @@ fn eggs() -> Todo {
 }
 
 fn seed(store: &mut Store<Event>) {
-    store.commit(created("1", "milk"), &mut ()).unwrap();
-    store.commit(created("2", "bread"), &mut ()).unwrap();
-    store.commit(created("3", "eggs"), &mut ()).unwrap();
+    store.commit(created("1", "milk")).unwrap();
+    store.commit(created("2", "bread")).unwrap();
+    store.commit(created("3", "eggs")).unwrap();
     store
-        .commit(Event::Completed { id: "2".into() }, &mut ())
+        .commit(Event::Completed { id: "2".into() })
         .unwrap();
 }
 
 fn seed_nullable(store: &mut Store<Event>) {
-    store.commit(created("1", "milk"), &mut ()).unwrap();
+    store.commit(created("1", "milk")).unwrap();
     store
-        .commit(Event::CreatedNullText { id: "2".into() }, &mut ())
+        .commit(Event::CreatedNullText { id: "2".into() })
         .unwrap();
 }
 
@@ -1022,7 +1022,7 @@ fn first_watch_stays_current_after_commit() {
     let live = store.watch(Todo::query().order_by("id").first()).unwrap();
 
     // Act
-    store.commit(created("1", "milk"), &mut ()).unwrap();
+    store.commit(created("1", "milk")).unwrap();
 
     // Assert
     assert_eq!(live.rows(), Some(milk()));
@@ -1136,7 +1136,7 @@ fn count_watch_stays_current_after_commit() {
     let live = store.watch(Todo::query().count()).unwrap();
 
     // Act
-    store.commit(created("1", "milk"), &mut ()).unwrap();
+    store.commit(created("1", "milk")).unwrap();
 
     // Assert
     assert_eq!(live.rows(), 1);
@@ -1193,7 +1193,7 @@ fn exists_watch_stays_current_after_commit() {
     let live = store.watch(Todo::query().exists()).unwrap();
 
     // Act
-    store.commit(created("1", "milk"), &mut ()).unwrap();
+    store.commit(created("1", "milk")).unwrap();
 
     // Assert
     assert!(live.rows());
@@ -1203,14 +1203,14 @@ fn exists_watch_stays_current_after_commit() {
 fn commit_keeps_select_watch_current() {
     // Arrange
     let mut store = open();
-    store.commit(created("1", "milk"), &mut ()).unwrap();
+    store.commit(created("1", "milk")).unwrap();
 
     // Act
     let active = store
         .watch(Todo::query().where_eq("completed", false).order_by("id"))
         .unwrap();
     store
-        .commit(Event::Completed { id: "1".into() }, &mut ())
+        .commit(Event::Completed { id: "1".into() })
         .unwrap();
 
     // Assert

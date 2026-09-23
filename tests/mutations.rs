@@ -94,13 +94,13 @@ fn open() -> Store<Event> {
 
 fn seed(store: &mut Store<Event>) {
     store
-        .commit(Event::Create(todo("1", "milk", false)), &mut ())
+        .commit(Event::Create(todo("1", "milk", false)))
         .unwrap();
     store
-        .commit(Event::Create(todo("2", "bread", true)), &mut ())
+        .commit(Event::Create(todo("2", "bread", true)))
         .unwrap();
     store
-        .commit(Event::Create(todo("3", "eggs", false)), &mut ())
+        .commit(Event::Create(todo("3", "eggs", false)))
         .unwrap();
 }
 
@@ -123,7 +123,7 @@ fn create_inserts_row() {
 
     // Act
     store
-        .commit(Event::Create(todo("1", "milk", false)), &mut ())
+        .commit(Event::Create(todo("1", "milk", false)))
         .unwrap();
 
     // Assert
@@ -138,7 +138,7 @@ fn create_keeps_watch_current() {
 
     // Act
     store
-        .commit(Event::Create(todo("1", "milk", false)), &mut ())
+        .commit(Event::Create(todo("1", "milk", false)))
         .unwrap();
 
     // Assert
@@ -153,7 +153,7 @@ fn update_changes_matching_row() {
 
     // Act
     store
-        .commit(Event::Complete { id: "1".into() }, &mut ())
+        .commit(Event::Complete { id: "1".into() })
         .unwrap();
 
     // Assert
@@ -175,7 +175,7 @@ fn update_leaves_other_rows() {
 
     // Act
     store
-        .commit(Event::Complete { id: "3".into() }, &mut ())
+        .commit(Event::Complete { id: "3".into() })
         .unwrap();
 
     // Assert
@@ -202,7 +202,6 @@ fn update_sets_several_columns() {
                 id: "2".into(),
                 text: "toast".into(),
             },
-            &mut (),
         )
         .unwrap();
 
@@ -225,7 +224,7 @@ fn update_applies_extra_where() {
 
     // Act
     store
-        .commit(Event::CompleteActive { id: "2".into() }, &mut ())
+        .commit(Event::CompleteActive { id: "2".into() })
         .unwrap();
 
     // Assert
@@ -250,7 +249,7 @@ fn update_keeps_watch_current() {
 
     // Act
     store
-        .commit(Event::Complete { id: "1".into() }, &mut ())
+        .commit(Event::Complete { id: "1".into() })
         .unwrap();
 
     // Assert
@@ -267,7 +266,7 @@ fn update_without_where_is_error() {
     seed(&mut store);
 
     // Act
-    let err = expect_sqlite(store.commit(Event::UpdateUnfiltered, &mut ()));
+    let err = expect_sqlite(store.commit(Event::UpdateUnfiltered));
 
     // Assert
     assert!(err.to_string().contains("UPDATE requires WHERE"));
@@ -281,7 +280,7 @@ fn delete_removes_matching_row() {
 
     // Act
     store
-        .commit(Event::Delete { id: "2".into() }, &mut ())
+        .commit(Event::Delete { id: "2".into() })
         .unwrap();
 
     // Assert
@@ -298,7 +297,7 @@ fn delete_matching_set() {
     seed(&mut store);
 
     // Act
-    store.commit(Event::DeleteCompleted, &mut ()).unwrap();
+    store.commit(Event::DeleteCompleted).unwrap();
 
     // Assert
     assert_eq!(
@@ -316,7 +315,7 @@ fn delete_keeps_watch_current() {
 
     // Act
     store
-        .commit(Event::Delete { id: "1".into() }, &mut ())
+        .commit(Event::Delete { id: "1".into() })
         .unwrap();
 
     // Assert
@@ -333,7 +332,7 @@ fn delete_without_where_is_error() {
     seed(&mut store);
 
     // Act
-    let err = expect_sqlite(store.commit(Event::DeleteUnfiltered, &mut ()));
+    let err = expect_sqlite(store.commit(Event::DeleteUnfiltered));
 
     // Assert
     assert!(err.to_string().contains("DELETE requires WHERE"));
@@ -347,7 +346,7 @@ fn exec_runs_raw_sqlite() {
 
     // Act
     store
-        .commit(Event::RawComplete { id: "1".into() }, &mut ())
+        .commit(Event::RawComplete { id: "1".into() })
         .unwrap();
 
     // Assert
@@ -370,7 +369,7 @@ fn exec_keeps_watch_current() {
 
     // Act
     store
-        .commit(Event::RawComplete { id: "3".into() }, &mut ())
+        .commit(Event::RawComplete { id: "3".into() })
         .unwrap();
 
     // Assert

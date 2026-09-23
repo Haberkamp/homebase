@@ -7,4 +7,4 @@ mod store;
 pub use homestead_macros::Table;
 pub use query::{Bind, Count, Exists, First, Select, Table};
 pub use rusqlite;
-pub use store::{Error, Live, Mutator, Notify, Query, Result, Store};
+pub use store::{Error, Live, Mutator, Query, Result, Store};

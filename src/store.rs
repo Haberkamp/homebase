@@ -49,22 +49,6 @@ impl From<std::io::Error> for Error {
 
 pub type Result<T> = std::result::Result<T, Error>;
 
-/// Something `commit` can notify after watches refresh. GPUI `Context` notifies
-/// the view; tests pass `&mut ()`.
-pub trait Notify {
-    fn notify(&mut self);
-}
-
-impl Notify for () {
-    fn notify(&mut self) {}
-}
-
-impl<T: 'static> Notify for gpui::Context<'_, T> {
-    fn notify(&mut self) {
-        gpui::Context::notify(self);
-    }
-}
-
 /// Maps a consumer event onto SQLite writes.
 pub trait Mutator<E> {
     fn apply(&self, tx: &Transaction<'_>, event: &E) -> rusqlite::Result<()>;
@@ -246,14 +230,13 @@ impl<E> Store<E> {
         })
     }
 
-    pub fn commit(&mut self, event: E, cx: &mut impl Notify) -> Result<()> {
+    pub fn commit(&mut self, event: E) -> Result<()> {
         {
             let tx = self.conn.transaction()?;
             self.mutator.apply(&tx, &event)?;
             tx.commit()?;
         }
         self.refresh()?;
-        cx.notify();
         Ok(())
     }
 

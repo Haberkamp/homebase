@@ -1,17 +1,17 @@
 [package]
 name = "homestead"
-version = "0.1.0"
+version = "0.1.2"
 edition = "2024"
 description = "Local-first SQLite store with schema migrations, models, mutators, and live queries."
 license = "MIT"
 repository = "https://github.com/Haberkamp/homestead"
 
 [dependencies]
-gpui = "0.2.2"
 homestead-macros = { version = "0.1.0", path = "homestead-macros" }
 rusqlite = { version = "0.32", features = ["bundled"] }
 
 [dev-dependencies]
+gpui = "0.2.2"
 tempfile = "3"
 
 [[example]]

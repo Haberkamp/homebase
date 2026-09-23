@@ -76,8 +76,9 @@ impl TodoApp {
 
     fn add_todo(&mut self, text: String, cx: &mut Context<Self>) {
         self.store
-            .commit(Event::Created { id: new_id(), text }, cx)
+            .commit(Event::Created { id: new_id(), text })
             .expect("commit created");
+        cx.notify();
     }
 
     fn toggle(&mut self, id: String, completed: bool, cx: &mut Context<Self>) {
@@ -86,13 +87,15 @@ impl TodoApp {
         } else {
             Event::Completed { id }
         };
-        self.store.commit(event, cx).expect("commit toggle");
+        self.store.commit(event).expect("commit toggle");
+        cx.notify();
     }
 
     fn delete(&mut self, id: String, cx: &mut Context<Self>) {
         self.store
-            .commit(Event::Deleted { id }, cx)
+            .commit(Event::Deleted { id })
             .expect("commit deleted");
+        cx.notify();
     }
 }
 

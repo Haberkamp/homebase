@@ -158,7 +158,7 @@ fn create_updates_active_watch() {
     let active = store.watch(TodoQuery::Active).unwrap();
 
     // Act
-    store.commit(created("1", "milk"), &mut ()).unwrap();
+    store.commit(created("1", "milk")).unwrap();
 
     // Assert
     assert_eq!(active.rows(), vec![milk(false)]);
@@ -170,13 +170,13 @@ fn complete_moves_todo_between_watches() {
     let mut store = open();
     let active = store.watch(TodoQuery::Active).unwrap();
     let completed = store.watch(TodoQuery::Completed).unwrap();
-    store.commit(created("1", "milk"), &mut ()).unwrap();
+    store.commit(created("1", "milk")).unwrap();
     assert_eq!(active.rows(), vec![milk(false)]);
     assert!(completed.rows().is_empty());
 
     // Act
     store
-        .commit(Event::Completed { id: "1".into() }, &mut ())
+        .commit(Event::Completed { id: "1".into() })
         .unwrap();
 
     // Assert
@@ -190,16 +190,16 @@ fn delete_clears_completed_watch() {
     let mut store = open();
     let active = store.watch(TodoQuery::Active).unwrap();
     let completed = store.watch(TodoQuery::Completed).unwrap();
-    store.commit(created("1", "milk"), &mut ()).unwrap();
+    store.commit(created("1", "milk")).unwrap();
     store
-        .commit(Event::Completed { id: "1".into() }, &mut ())
+        .commit(Event::Completed { id: "1".into() })
         .unwrap();
     assert!(active.rows().is_empty());
     assert_eq!(completed.rows(), vec![milk(true)]);
 
     // Act
     store
-        .commit(Event::Deleted { id: "1".into() }, &mut ())
+        .commit(Event::Deleted { id: "1".into() })
         .unwrap();
 
     // Assert
@@ -212,15 +212,15 @@ fn complete_already_completed_keeps_same_rows() {
     // Arrange
     let mut store = open();
     let completed = store.watch(TodoQuery::Completed).unwrap();
-    store.commit(created("1", "milk"), &mut ()).unwrap();
+    store.commit(created("1", "milk")).unwrap();
     store
-        .commit(Event::Completed { id: "1".into() }, &mut ())
+        .commit(Event::Completed { id: "1".into() })
         .unwrap();
     assert_eq!(completed.rows(), vec![milk(true)]);
 
     // Act
     store
-        .commit(Event::Completed { id: "1".into() }, &mut ())
+        .commit(Event::Completed { id: "1".into() })
         .unwrap();
 
     // Assert
@@ -235,7 +235,7 @@ fn reopen_same_file_keeps_todos() {
     let migrations = migrate_dir(SCHEMA);
     {
         let mut store = Store::open(&path, migrations.path(), TodoMutator).unwrap();
-        store.commit(created("1", "milk"), &mut ()).unwrap();
+        store.commit(created("1", "milk")).unwrap();
     }
 
     // Act
@@ -253,10 +253,10 @@ fn many_commits_keep_watch_current() {
     let active = store.watch(TodoQuery::Active).unwrap();
 
     // Act
-    store.commit(created("1", "milk"), &mut ()).unwrap();
-    store.commit(created("2", "bread"), &mut ()).unwrap();
+    store.commit(created("1", "milk")).unwrap();
+    store.commit(created("2", "bread")).unwrap();
     store
-        .commit(Event::Completed { id: "1".into() }, &mut ())
+        .commit(Event::Completed { id: "1".into() })
         .unwrap();
 
     // Assert
@@ -308,10 +308,10 @@ fn duplicate_create_is_sqlite_error_and_rolls_back() {
     // Arrange
     let mut store = open();
     let active = store.watch(TodoQuery::Active).unwrap();
-    store.commit(created("1", "milk"), &mut ()).unwrap();
+    store.commit(created("1", "milk")).unwrap();
 
     // Act
-    let err = expect_sqlite(store.commit(created("1", "again"), &mut ()));
+    let err = expect_sqlite(store.commit(created("1", "again")));
 
     // Assert
     assert!(err.to_string().contains("UNIQUE constraint failed"));
@@ -338,7 +338,7 @@ fn commit_without_schema_is_sqlite_error() {
     let mut store = Store::open(":memory:", migrations.path(), TodoMutator).unwrap();
 
     // Act
-    let err = expect_sqlite(store.commit(created("1", "milk"), &mut ()));
+    let err = expect_sqlite(store.commit(created("1", "milk")));
 
     // Assert
     assert!(err.to_string().contains("no such table"));
@@ -353,7 +353,7 @@ fn refresh_query_failure_is_sqlite_error() {
     fail.set(true);
 
     // Act
-    let err = expect_sqlite(store.commit(created("1", "milk"), &mut ()));
+    let err = expect_sqlite(store.commit(created("1", "milk")));
 
     // Assert
     assert!(err.to_string().contains("Query returned no rows"));
@@ -369,7 +369,7 @@ fn dropped_watch_does_not_rerun_query() {
     fail.set(true);
 
     // Act
-    store.commit(created("1", "milk"), &mut ()).unwrap();
+    store.commit(created("1", "milk")).unwrap();
 
     // Assert — commit succeeds because the flaky query is no longer watched
     let active = store.watch(TodoQuery::Active).unwrap();
@@ -385,7 +385,7 @@ fn dropping_one_watch_keeps_the_other_current() {
     drop(first);
 
     // Act
-    store.commit(created("1", "milk"), &mut ()).unwrap();
+    store.commit(created("1", "milk")).unwrap();
 
     // Assert
     assert_eq!(second.rows(), vec![milk(false)]);
