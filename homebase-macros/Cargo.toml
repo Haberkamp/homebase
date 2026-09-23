@@ -2,6 +2,9 @@
 name = "homebase-macros"
 version = "0.1.0"
 edition = "2024"
+description = "Proc macros for the homebase SQLite store."
+license = "MIT"
+repository = "https://github.com/Haberkamp/homebase"
 
 [lib]
 proc-macro = true
