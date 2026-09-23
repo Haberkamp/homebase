@@ -2,8 +2,8 @@ use std::cell::Cell;
 use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 
-use homebase::rusqlite::{self, Connection, Transaction, params};
-use homebase::{Error, Mutator, Query, Store};
+use homestead::rusqlite::{self, Connection, Transaction, params};
+use homestead::{Error, Mutator, Query, Store};
 use tempfile::tempdir;
 
 const SCHEMA: &str = "
@@ -113,7 +113,7 @@ fn milk(completed: bool) -> Todo {
     }
 }
 
-fn expect_sqlite<T>(result: homebase::Result<T>) -> rusqlite::Error {
+fn expect_sqlite<T>(result: homestead::Result<T>) -> rusqlite::Error {
     match result {
         Err(Error::Sqlite(err)) => err,
         Err(Error::Io(err)) => panic!("expected sqlite error, got io: {err}"),

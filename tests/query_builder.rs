@@ -1,5 +1,5 @@
-use homebase::rusqlite::{self, Row, Transaction, params};
-use homebase::{Error, Mutator, Select, Store, Table};
+use homestead::rusqlite::{self, Row, Transaction, params};
+use homestead::{Error, Mutator, Select, Store, Table};
 use tempfile::tempdir;
 
 const SCHEMA: &str = "
@@ -28,7 +28,7 @@ impl Table for Todo {
         })
     }
 
-    fn values(&self) -> Vec<homebase::Bind> {
+    fn values(&self) -> Vec<homestead::Bind> {
         vec![
             self.id.as_str().into(),
             self.text.as_str().into(),

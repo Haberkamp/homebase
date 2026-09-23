@@ -2473,17 +2473,17 @@ dependencies = [
 ]
 
 [[package]]
-name = "homebase"
+name = "homestead"
 version = "0.1.0"
 dependencies = [
  "gpui",
- "homebase-macros",
+ "homestead-macros",
  "rusqlite",
  "tempfile",
 ]
 
 [[package]]
-name = "homebase-macros"
+name = "homestead-macros"
 version = "0.1.0"
 dependencies = [
  "proc-macro2",

@@ -1,7 +1,7 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use gpui::{App, Context, Entity, FocusHandle, Focusable, Window, div, prelude::*, rgb};
-use homebase::{Live, Select, Store, Table};
+use homestead::{Live, Select, Store, Table};
 
 use crate::domain::{Event, Todo, TodoMutator};
 

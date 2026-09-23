@@ -1,4 +1,4 @@
-//! Basic GPUI todo app backed by the homebase SQLite store.
+//! Basic GPUI todo app backed by the homestead SQLite store.
 //!
 //! ```sh
 //! cargo run --example todo

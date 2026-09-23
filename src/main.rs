@@ -1,3 +1,3 @@
 fn main() {
-    println!("homebase — consumers own schema, events, mutators, and queries");
+    println!("homestead — consumers own schema, events, mutators, and queries");
 }

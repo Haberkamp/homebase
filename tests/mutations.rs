@@ -1,5 +1,5 @@
-use homebase::rusqlite::{self, Transaction};
-use homebase::{Error, Mutator, Store, Table};
+use homestead::rusqlite::{self, Transaction};
+use homestead::{Error, Mutator, Store, Table};
 use tempfile::tempdir;
 
 const SCHEMA: &str = "
@@ -108,7 +108,7 @@ fn rows(store: &mut Store<Event>) -> Vec<Todo> {
     store.watch(Todo::query().order_by("id")).unwrap().rows()
 }
 
-fn expect_sqlite<T>(result: homebase::Result<T>) -> rusqlite::Error {
+fn expect_sqlite<T>(result: homestead::Result<T>) -> rusqlite::Error {
     match result {
         Err(Error::Sqlite(err)) => err,
         Err(Error::Io(err)) => panic!("expected sqlite error, got io: {err}"),

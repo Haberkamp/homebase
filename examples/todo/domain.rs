@@ -1,5 +1,5 @@
-use homebase::rusqlite::{self, Transaction};
-use homebase::{Mutator, Table};
+use homestead::rusqlite::{self, Transaction};
+use homestead::{Mutator, Table};
 
 #[derive(Clone, Debug, PartialEq, Eq, Table)]
 pub struct Todo {

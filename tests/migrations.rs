@@ -1,5 +1,5 @@
-use homebase::rusqlite::Connection;
-use homebase::{Error, Mutator, Store};
+use homestead::rusqlite::Connection;
+use homestead::{Error, Mutator, Store};
 use tempfile::tempdir;
 
 const CREATE_TODOS: &str = "
@@ -15,9 +15,9 @@ struct Noop;
 impl Mutator<()> for Noop {
     fn apply(
         &self,
-        _tx: &homebase::rusqlite::Transaction<'_>,
+        _tx: &homestead::rusqlite::Transaction<'_>,
         _event: &(),
-    ) -> homebase::rusqlite::Result<()> {
+    ) -> homestead::rusqlite::Result<()> {
         Ok(())
     }
 }

@@ -42,20 +42,20 @@ fn expand(input: &DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
     });
 
     Ok(quote! {
-        impl ::homebase::Table for #name {
+        impl ::homestead::Table for #name {
             const COLUMNS: &'static [&'static str] = &[#(#columns),*];
 
             #table_fn
 
-            fn from_row(row: &::homebase::rusqlite::Row<'_>) -> ::homebase::rusqlite::Result<Self> {
+            fn from_row(row: &::homestead::rusqlite::Row<'_>) -> ::homestead::rusqlite::Result<Self> {
                 Ok(Self {
                     #(#field_idents: row.get(stringify!(#field_idents))?),*
                 })
             }
 
-            fn values(&self) -> Vec<::homebase::Bind> {
+            fn values(&self) -> Vec<::homestead::Bind> {
                 vec![
-                    #(::homebase::Bind::from(self.#field_idents.clone())),*
+                    #(::homestead::Bind::from(self.#field_idents.clone())),*
                 ]
             }
         }
