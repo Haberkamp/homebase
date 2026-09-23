@@ -2,5 +2,18 @@
 name = "homebase"
 version = "0.1.0"
 edition = "2024"
+description = "Local-first SQLite store with schema migrations, models, mutators, and live queries."
+license = "MIT"
+repository = "https://github.com/Haberkamp/homebase"
 
 [dependencies]
+gpui = "0.2.2"
+homebase-macros = { version = "0.1.0", path = "homebase-macros" }
+rusqlite = { version = "0.32", features = ["bundled"] }
+
+[dev-dependencies]
+tempfile = "3"
+
+[[example]]
+name = "todo"
+path = "examples/todo/main.rs"
